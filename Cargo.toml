@@ -1,0 +1,10 @@
+[package]
+name = "coral"
+version = "0.1.0"
+edition = "2024"
+authors = ["lichuang"]
+license = "MIT"
+description = "A composable CRDT library for collaborative applications. "
+repository = "https://github.com/lichuang/coral"
+
+[dependencies]

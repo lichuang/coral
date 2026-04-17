@@ -262,6 +262,37 @@ fn map_merge_commutative() {
 
 ---
 
+## Code Quality Checks
+
+Every time you write or modify code, you **must** run the following checks before considering the task complete. Do not skip them.
+
+### Required Commands
+
+```bash
+# 1. Formatting Check — verify code follows rustfmt style
+cargo fmt --check
+
+# 2. Clippy Check — catch lints, warnings, and common mistakes
+cargo clippy -- -D warnings
+
+# 3. Test Check — run all existing tests to prevent regressions
+cargo test
+```
+
+### Rules
+
+- [ ] **Formatting Check must pass**. If `cargo fmt --check` fails, run `cargo fmt` to auto-fix and review the diff.
+- [ ] **Clippy Check must pass with zero warnings**. The `-D warnings` flag treats all warnings as errors. Fix or explicitly allow with a documented reason.
+- [ ] **All tests must pass**. If a test fails, fix the code or the test. Do not delete or disable existing tests to make them pass.
+- [ ] **Run all three in sequence** — not just the one you think is relevant. A formatting change can break tests, and a logic fix can introduce new clippy warnings.
+- [ ] **Check both `lib.rs` and integration tests in `tests/`**. If you added a new test file, make sure it is picked up by `cargo test`.
+
+### When Checks Can Be Deferred
+
+Never. Even for trivial one-line changes, run all three. The only exception is when you are explicitly told to skip them in a debug/ exploratory session — but you must run them before marking the task as done in `todo.md`.
+
+---
+
 ## Phase Guidance Quick Reference
 
 If you are asked to work on a specific phase, first confirm its prerequisites:

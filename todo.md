@@ -26,7 +26,7 @@ Phase 12: Checkout & Time Travel（版本回滚、Fork、时间旅行）
 
 > 一切依赖的起点，纯数据结构，无逻辑。
 
-- [ ] ### 1.1 类型别名
+- [x] ### 1.1 类型别名
 
 ```rust
 // src/types.rs
