@@ -40,7 +40,7 @@ pub type Lamport = u32;   // Lamport 时间戳
 - `Counter`: 每个 peer 独立递增，与 PeerID 组合唯一标识一个操作
 - `Lamport`: 用于 LWW 比较（因果排序）
 
-- [ ] ### 1.2 操作 ID
+- [x] ### 1.2 操作 ID
 
 ```rust
 // src/id.rs
