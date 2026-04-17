@@ -84,7 +84,7 @@ pub enum ContainerType {
 - `#[repr(u8)]` — 编码/解码时用单字节表示
 - 后续编码传输时 `to_u8()` / `from_u8()` 互转
 
-- [ ] ### 1.4 ContainerID
+- [x] ### 1.4 ContainerID
 
 ```rust
 // src/container_id.rs
