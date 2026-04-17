@@ -1,10 +1,10 @@
 //! Unique operation identifier and related utilities.
 //!
-//! An [`ID`] combines a [`PeerID`](crate::types::PeerID) with a
-//! [`Counter`](crate::types::Counter) to form a globally unique identifier
+//! An [`ID`] combines a [`PeerID`](super::primitives::PeerID) with a
+//! [`Counter`](super::primitives::Counter) to form a globally unique identifier
 //! for every operation in the distributed system.
 
-use crate::types::{Counter, PeerID};
+use super::primitives::{Counter, PeerID};
 use std::cmp::Ordering;
 
 /// Globally unique identifier for a single operation.
@@ -35,9 +35,8 @@ impl ID {
 
   /// Returns a new `ID` with the counter advanced by `delta`.
   ///
-  /// This is used when a single [`Change`](crate::change::Change) contains
-  /// multiple [`Op`](crate::op::Op)s: the first Op uses the Change's `id`,
-  /// the second uses `id.inc(1)`, and so on.
+  /// This is used when a single `Change` contains multiple `Op`s:
+  /// the first Op uses the Change's `id`, the second uses `id.inc(1)`, and so on.
   #[inline]
   pub const fn inc(&self, delta: Counter) -> Self {
     Self {

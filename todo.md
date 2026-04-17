@@ -63,7 +63,7 @@ impl ID {
 - 实现 `Hash` — 用于 HashMap/HashSet 查找
 - `inc()` — 一个 Change 包含多个 Op，每个 Op 的 ID 递增
 
-- [ ] ### 1.3 ContainerType 枚举
+- [x] ### 1.3 ContainerType 枚举
 
 ```rust
 // src/container_id.rs

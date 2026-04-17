@@ -14,7 +14,7 @@ pub type PeerID = u64;
 ///
 /// Each peer maintains its own `Counter`, starting from 0 and incrementing
 /// by 1 for each atomic operation. Combined with `PeerID`, it forms a
-/// globally unique [`ID`](crate::id::ID) for every operation.
+/// globally unique [`ID`](super::id::ID) for every operation.
 pub type Counter = i32;
 
 /// Lamport logical timestamp for causal ordering and Last-Write-Wins resolution.
