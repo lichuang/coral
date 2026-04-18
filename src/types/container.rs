@@ -178,94 +178,19 @@ impl ContainerID {
       Self::Normal { container_type, .. } => *container_type,
     }
   }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // Binary encoding
-  // ═══════════════════════════════════════════════════════════════════════
-
-  /// Encodes the `ContainerID` into a compact byte representation.
-  ///
-  /// Format:
-  /// - Root: `[flag | type, name_len (u8), name_bytes...]`
-  ///   where `flag = 0x80 | type_u8`
-  /// - Normal: `[type (u8), peer (8 bytes LE), counter (4 bytes LE)]`
-  pub fn to_bytes(&self) -> Vec<u8> {
-    match self {
-      Self::Root {
-        name,
-        container_type,
-      } => {
-        let mut buf = Vec::with_capacity(2 + name.len());
-        buf.push(0x80 | container_type.to_u8());
-        buf.push(name.len() as u8);
-        buf.extend_from_slice(name.as_bytes());
-        buf
-      }
-      Self::Normal {
-        peer,
-        counter,
-        container_type,
-      } => {
-        let mut buf = Vec::with_capacity(13);
-        buf.push(container_type.to_u8());
-        buf.extend_from_slice(&peer.to_le_bytes());
-        buf.extend_from_slice(&counter.to_le_bytes());
-        buf
-      }
-    }
-  }
-
-  /// Decodes a `ContainerID` from bytes produced by [`to_bytes`](Self::to_bytes).
-  ///
-  /// Returns `None` if the data is malformed.
-  pub fn from_bytes(data: &[u8]) -> Option<Self> {
-    if data.is_empty() {
-      return None;
-    }
-    let first = data[0];
-    let is_root = (first & 0x80) != 0;
-    let type_byte = first & 0x7F;
-    let container_type = ContainerType::try_from_u8(type_byte)?;
-
-    if is_root {
-      if data.len() < 2 {
-        return None;
-      }
-      let name_len = data[1] as usize;
-      if data.len() != 2 + name_len {
-        return None;
-      }
-      let name = String::from_utf8(data[2..].to_vec()).ok()?;
-      Some(Self::Root {
-        name,
-        container_type,
-      })
-    } else {
-      if data.len() != 13 {
-        return None;
-      }
-      let peer = PeerID::from_le_bytes(data[1..9].try_into().ok()?);
-      let counter = Counter::from_le_bytes(data[9..13].try_into().ok()?);
-      Some(Self::Normal {
-        peer,
-        counter,
-        container_type,
-      })
-    }
-  }
 }
 
 impl fmt::Display for ContainerID {
   /// Human-readable representation.
   ///
-  /// - Root: `root:<name>:<type>`
+  /// - Root: `<name>:<type>`
   /// - Normal: `<counter>@<peer>:<type>`
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Root {
         name,
         container_type,
-      } => write!(f, "root:{name}:{container_type}"),
+      } => write!(f, "{name}:{container_type}"),
       Self::Normal {
         peer,
         counter,
@@ -282,21 +207,8 @@ impl std::str::FromStr for ContainerID {
   ///
   /// Expected formats match those produced by [`Display`](ContainerID::Display).
   fn from_str(s: &str) -> Result<Self, Self::Err> {
-    if let Some(rest) = s.strip_prefix("root:") {
-      // root:<name>:<type>
-      let colon_pos = rest
-        .rfind(':')
-        .ok_or_else(|| "missing ':' separator before type".to_string())?;
-      let name = &rest[..colon_pos];
-      let type_str = &rest[colon_pos + 1..];
-      if name.is_empty() {
-        return Err("root container name must not be empty".to_string());
-      }
-      let container_type = type_str
-        .parse()
-        .map_err(|_| format!("unknown container type: {type_str}"))?;
-      Ok(Self::new_root(name, container_type))
-    } else {
+    // Normal IDs always contain '@'; Root IDs never do.
+    if s.contains('@') {
       // <counter>@<peer>:<type>
       let at_pos = s
         .find('@')
@@ -318,6 +230,20 @@ impl std::str::FromStr for ContainerID {
         .parse()
         .map_err(|_| format!("unknown container type: {type_str}"))?;
       Ok(Self::new_normal(ID::new(peer, counter), container_type))
+    } else {
+      // <name>:<type>
+      let colon_pos = s
+        .rfind(':')
+        .ok_or_else(|| "missing ':' separator before type".to_string())?;
+      let name = &s[..colon_pos];
+      let type_str = &s[colon_pos + 1..];
+      if name.is_empty() {
+        return Err("root container name must not be empty".to_string());
+      }
+      let container_type = type_str
+        .parse()
+        .map_err(|_| format!("unknown container type: {type_str}"))?;
+      Ok(Self::new_root(name, container_type))
     }
   }
 }
@@ -396,29 +322,6 @@ mod tests {
   }
 
   #[test]
-  fn test_container_id_bytes_roundtrip_root() {
-    let original = ContainerID::new_root("settings", ContainerType::Map);
-    let bytes = original.to_bytes();
-    let decoded = ContainerID::from_bytes(&bytes).unwrap();
-    assert_eq!(original, decoded);
-  }
-
-  #[test]
-  fn test_container_id_bytes_roundtrip_normal() {
-    let original = ContainerID::new_normal(ID::new(0xDEADBEEF, 12345), ContainerType::Text);
-    let bytes = original.to_bytes();
-    let decoded = ContainerID::from_bytes(&bytes).unwrap();
-    assert_eq!(original, decoded);
-  }
-
-  #[test]
-  fn test_container_id_bytes_invalid() {
-    assert!(ContainerID::from_bytes(&[]).is_none());
-    assert!(ContainerID::from_bytes(&[0xFF]).is_none()); // unknown type
-    assert!(ContainerID::from_bytes(&[0x00; 12]).is_none()); // wrong len for Normal
-  }
-
-  #[test]
   fn test_container_id_string_roundtrip_root() {
     let original = ContainerID::new_root("my-text", ContainerType::Text);
     let s = original.to_string();
@@ -446,7 +349,7 @@ mod tests {
   #[test]
   fn test_container_id_string_invalid() {
     assert!("foo".parse::<ContainerID>().is_err());
-    assert!("root::Map".parse::<ContainerID>().is_err()); // empty name
+    assert!(":Map".parse::<ContainerID>().is_err()); // empty name
     assert!("7@abc:Map".parse::<ContainerID>().is_err()); // bad peer
   }
 }

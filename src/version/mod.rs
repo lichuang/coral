@@ -448,6 +448,52 @@ impl PartialOrd for VersionVector {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImVersionVector(im::HashMap<PeerID, Counter, rustc_hash::FxBuildHasher>);
 
+impl PartialOrd for ImVersionVector {
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    let mut self_greater = true;
+    let mut other_greater = true;
+    let mut eq = true;
+
+    for (peer, &other_end) in other.0.iter() {
+      match self.0.get(peer) {
+        Some(&self_end) => {
+          if self_end < other_end {
+            self_greater = false;
+            eq = false;
+          }
+          if self_end > other_end {
+            other_greater = false;
+            eq = false;
+          }
+        }
+        None => {
+          if other_end > 0 {
+            self_greater = false;
+            eq = false;
+          }
+        }
+      }
+    }
+
+    for (peer, &self_end) in self.0.iter() {
+      if !other.0.contains_key(peer) && self_end > 0 {
+        other_greater = false;
+        eq = false;
+      }
+    }
+
+    if eq {
+      Some(Ordering::Equal)
+    } else if self_greater {
+      Some(Ordering::Greater)
+    } else if other_greater {
+      Some(Ordering::Less)
+    } else {
+      None
+    }
+  }
+}
+
 impl ImVersionVector {
   pub fn new() -> Self {
     Self(Default::default())
