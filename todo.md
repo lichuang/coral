@@ -113,7 +113,7 @@ impl ContainerID {
 }
 ```
 
-- [ ] ### 1.5 LoroValue（JSON 值）
+- [x] ### 1.5 CoralValue（JSON 值）
 
 ```rust
 // src/value.rs

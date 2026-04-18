@@ -4,11 +4,11 @@
 //! operations, logical timestamps, and container categories.
 
 mod container;
-mod container_id;
 mod id;
 mod primitives;
+mod value;
 
-pub use container::ContainerType;
-pub use container_id::ContainerID;
+pub use container::{ContainerID, ContainerType};
 pub use id::ID;
 pub use primitives::{Counter, Lamport, PeerID};
+pub use value::CoralValue;
