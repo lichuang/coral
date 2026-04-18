@@ -67,19 +67,17 @@ impl Change {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::core::arena::Arena;
   use crate::op::{CounterOp, Op, OpContent};
   use crate::types::{ContainerID, ContainerType};
 
   #[test]
   fn test_change_new() {
+    let mut arena = Arena::new();
     let id = ID::new(1, 0);
     let deps = Frontiers::from_id(ID::new(0, 0));
-    let op = Op::new(
-      ID::new(1, 0),
-      ContainerID::new_root("counter", ContainerType::Counter),
-      OpContent::Counter(CounterOp),
-      1,
-    );
+    let container = arena.register(&ContainerID::new_root("counter", ContainerType::Counter));
+    let op = Op::new(0, container, OpContent::Counter(CounterOp));
     let change = Change::new(id, 5, 1_700_000_000_000, deps.clone(), vec![op]);
     assert_eq!(change.peer(), 1);
     assert_eq!(change.lamport, 5);

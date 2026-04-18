@@ -3,74 +3,127 @@
 //! An [`Op`] targets a single container and carries a payload ([`OpContent`])
 //! describing what to do.  The concrete operation types (`MapOp`, `ListOp`, …)
 //! are defined in the [`content`] sub-module and re-exported here.
+//!
+//! # Design note
+//!
+//! `Op` stores only a [`Counter`](crate::types::Counter) — the peer ID is
+//! implicit from the enclosing [`Change`](crate::core::change::Change).  The
+//! container field uses the compact [`ContainerIdx`](crate::core::container::ContainerIdx)
+//! instead of the full [`ContainerID`](crate::types::ContainerID).
 
 mod content;
 
 pub use content::*;
 
-use crate::types::{ContainerID, ID, Lamport};
+use crate::core::container::ContainerIdx;
+use crate::types::{Counter, ID, PeerID};
 
 /// A single atomic operation.
 ///
-/// Every Op is uniquely identified by its [`ID`].  It also carries a
-/// [`Lamport`] timestamp so that concurrent operations can be ordered
-/// deterministically (Last-Write-Wins).
-///
-/// # Note
-///
-/// The `container` field currently stores a [`ContainerID`].  In later
-/// phases this will be optimised to the compact [`ContainerIdx`](crate::arena::ContainerIdx)
-/// internally, while the public API continues to expose `ContainerID`.
+/// `Op` is intentionally compact: peer and lamport live on the enclosing
+/// [`Change`](crate::core::change::Change), and the container is referenced by
+/// a 4-byte [`ContainerIdx`] rather than the full [`ContainerID`].
 #[derive(Debug, Clone)]
 pub struct Op {
-  /// Globally unique identifier for this operation.
-  pub id: ID,
+  /// The operation counter (peer is implicit from the Change).
+  pub counter: Counter,
 
-  /// The target container.
-  pub container: ContainerID,
+  /// The target container (compact arena index).
+  pub container: ContainerIdx,
 
   /// What to do in the target container.
   pub content: OpContent,
-
-  /// Lamport timestamp for causal / LWW ordering.
-  pub lamport: Lamport,
 }
 
 impl Op {
   /// Creates a new `Op`.
-  pub fn new(id: ID, container: ContainerID, content: OpContent, lamport: Lamport) -> Self {
+  pub fn new(counter: Counter, container: ContainerIdx, content: OpContent) -> Self {
     Self {
-      id,
+      counter,
       container,
       content,
-      lamport,
     }
+  }
+
+  /// Reconstructs the full [`ID`] given the peer that produced this op.
+  #[inline]
+  pub fn id(&self, peer: PeerID) -> ID {
+    ID::new(peer, self.counter)
+  }
+}
+
+/// An [`Op`] paired with its peer so that the full [`ID`] can be recovered.
+///
+/// This is used when iterating over ops inside a [`Change`](crate::core::change::Change),
+/// where all ops share the same peer but have individual counters.
+#[derive(Debug, Clone)]
+pub struct OpWithId {
+  pub peer: PeerID,
+  pub op: Op,
+}
+
+impl OpWithId {
+  /// Returns the full [`ID`] of this op.
+  #[inline]
+  pub fn id(&self) -> ID {
+    ID::new(self.peer, self.op.counter)
+  }
+
+  /// Returns the counter span covered by this op.
+  ///
+  /// For now each placeholder op has atom length 1.
+  pub fn id_span(&self) -> crate::version::IdSpan {
+    let start = self.op.counter;
+    let end = start + 1;
+    crate::version::IdSpan::new(self.peer, start, end)
   }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::types::{ContainerType, ID};
+  use crate::core::arena::Arena;
+  use crate::types::{ContainerID, ContainerType};
 
   #[test]
   fn test_op_new() {
-    let id = ID::new(1, 0);
-    let container = ContainerID::new_root("my_map", ContainerType::Map);
-    let content = OpContent::Map(MapOp);
-    let op = Op::new(id, container.clone(), content, 42);
-    assert_eq!(op.id, id);
+    let mut arena = Arena::new();
+    let container = arena.register(&ContainerID::new_root("my_map", ContainerType::Map));
+    let op = Op::new(7, container, OpContent::Map(MapOp));
+    assert_eq!(op.counter, 7);
     assert_eq!(op.container, container);
-    assert_eq!(op.lamport, 42);
+  }
+
+  #[test]
+  fn test_op_id() {
+    let mut arena = Arena::new();
+    let container = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
+    let op = Op::new(3, container, OpContent::Counter(CounterOp));
+    assert_eq!(op.id(42), ID::new(42, 3));
+  }
+
+  #[test]
+  fn test_op_with_id() {
+    let mut arena = Arena::new();
+    let container = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
+    let op = Op::new(5, container, OpContent::Counter(CounterOp));
+    let op_with_id = OpWithId { peer: 99, op };
+    assert_eq!(op_with_id.id(), ID::new(99, 5));
   }
 
   #[test]
   fn test_op_content_variants() {
-    // Just make sure every variant can be constructed.
-    let _ = OpContent::Map(MapOp);
-    let _ = OpContent::List(ListOp);
-    let _ = OpContent::Text(TextOp);
-    let _ = OpContent::Tree(TreeOp);
-    let _ = OpContent::Counter(CounterOp);
+    let mut arena = Arena::new();
+    let map_c = arena.register(&ContainerID::new_root("m", ContainerType::Map));
+    let list_c = arena.register(&ContainerID::new_root("l", ContainerType::List));
+    let text_c = arena.register(&ContainerID::new_root("t", ContainerType::Text));
+    let tree_c = arena.register(&ContainerID::new_root("tr", ContainerType::Tree));
+    let counter_c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
+
+    let _ = Op::new(0, map_c, OpContent::Map(MapOp));
+    let _ = Op::new(0, list_c, OpContent::List(ListOp));
+    let _ = Op::new(0, text_c, OpContent::Text(TextOp));
+    let _ = Op::new(0, tree_c, OpContent::Tree(TreeOp));
+    let _ = Op::new(0, counter_c, OpContent::Counter(CounterOp));
   }
 }
