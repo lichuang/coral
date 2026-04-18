@@ -165,7 +165,7 @@ pub enum OpContent {
 
 **注意**：在内部实现中，Op 的 `container` 字段后期会优化为 `ContainerIdx`（见 Phase 2.1），但 API 层仍暴露 `ContainerID`。
 
-- [ ] ### 1.7 Change（变更组 / 事务）
+- [x] ### 1.7 Change（变更组 / 事务）
 
 ```rust
 // src/change.rs
@@ -187,7 +187,7 @@ pub struct Change {
 - 一个 Change 内的多个 Op 的 ID 是连续的：`id.counter`, `id.counter+1`, ...
 - 后续 `OpLog` 按 Change 存储历史，而非按 Op
 
-- [ ] ### 1.8 VersionVector & Frontiers
+- [x] ### 1.8 VersionVector & Frontiers
 
 ```rust
 // src/version.rs
