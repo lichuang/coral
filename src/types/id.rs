@@ -46,11 +46,12 @@ impl ID {
   }
 }
 
-/// Deterministic ordering: first by `counter`, then by `peer`.
+/// Deterministic ordering: first by `peer`, then by `counter`.
 ///
-/// This ordering is critical for concurrent insert resolution in RGA
-/// (Replicated Growable Array) where ties on Lamport timestamp must be
-/// broken deterministically across all peers.
+/// This ordering matches the derived `Ord` semantics in Loro, where the
+/// struct field declaration order (`peer` before `counter`) determines the
+/// lexicographic comparison. It is used for RGA tie-breaking and for
+/// collections (e.g. `BTreeMap<ID, _>`) that require a total order.
 impl PartialOrd for ID {
   fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
     Some(self.cmp(other))
@@ -59,8 +60,8 @@ impl PartialOrd for ID {
 
 impl Ord for ID {
   fn cmp(&self, other: &Self) -> Ordering {
-    match self.counter.cmp(&other.counter) {
-      Ordering::Equal => self.peer.cmp(&other.peer),
+    match self.peer.cmp(&other.peer) {
+      Ordering::Equal => self.counter.cmp(&other.counter),
       ord => ord,
     }
   }
@@ -93,16 +94,16 @@ mod tests {
   }
 
   #[test]
-  fn test_id_ord_by_counter_then_peer() {
-    // Counter takes precedence over peer.
-    let a = ID::new(100, 1);
-    let b = ID::new(1, 2);
-    assert!(a < b, "counter 1 < counter 2 regardless of peer");
+  fn test_id_ord_by_peer_then_counter() {
+    // Peer takes precedence over counter.
+    let a = ID::new(1, 100);
+    let b = ID::new(2, 1);
+    assert!(a < b, "peer 1 < peer 2 regardless of counter");
 
-    // Same counter: peer breaks the tie.
+    // Same peer: counter breaks the tie.
     let c = ID::new(10, 5);
-    let d = ID::new(20, 5);
-    assert!(c < d, "same counter, smaller peer wins");
+    let d = ID::new(10, 6);
+    assert!(c < d, "same peer, smaller counter wins");
 
     // Equal IDs.
     let e = ID::new(7, 7);
