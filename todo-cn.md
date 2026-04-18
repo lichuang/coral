@@ -217,7 +217,7 @@ impl VersionVector {
 - `Frontiers` 是**版本标识**：两个文档若 Frontiers 相同，则状态一定相同（假设确定性 apply）
 - Diff（计算状态差异）、Merge、Checkout 都依赖这两者
 
-- [ ] ### 1.9 Span（区间类型）
+- [x] ### 1.9 Span（区间类型）
 
 ```rust
 // src/span.rs
@@ -248,7 +248,7 @@ pub struct IdSpan {
 
 > 连接"操作"与"状态"的桥梁。没有这些，CRDT 只是单机数据结构。
 
-- [ ] ### 2.1 Arena & ContainerIdx（内存优化层）
+- [x] ### 2.1 Arena & ContainerIdx（内存优化层）
 
 ```rust
 // src/arena.rs
@@ -1501,7 +1501,7 @@ Loro 使用 `serde_columnar` 做列式压缩编码，初期可以用 `serde + po
 
 | 指标 | 数量 |
 |------|------|
-| 已完成 | 8 |
-| 未完成 | 45 |
+| 已完成 | 10 |
+| 未完成 | 43 |
 | 总数 | 53 |
-| 完成百分比 | 15.1% |
+| 完成百分比 | 18.9% |

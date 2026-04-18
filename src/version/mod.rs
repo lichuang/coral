@@ -296,24 +296,24 @@ impl VersionVector {
   /// Extend this vector to include the given span.
   pub fn extend_to_include(&mut self, span: IdSpan) {
     if let Some(counter) = self.get_mut(&span.peer) {
-      if *counter < span.counter.norm_end() {
-        *counter = span.counter.norm_end();
+      if *counter < span.counter.end {
+        *counter = span.counter.end;
       }
     } else {
-      self.insert(span.peer, span.counter.norm_end());
+      self.insert(span.peer, span.counter.end);
     }
   }
 
   /// Shrink this vector to exclude the given span.
   pub fn shrink_to_exclude(&mut self, span: IdSpan) {
-    if span.counter.min() == 0 {
+    if span.counter.start == 0 {
       self.remove(&span.peer);
       return;
     }
     if let Some(counter) = self.get_mut(&span.peer)
-      && *counter > span.counter.min()
+      && *counter > span.counter.start
     {
-      *counter = span.counter.min();
+      *counter = span.counter.start;
     }
   }
 

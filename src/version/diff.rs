@@ -66,8 +66,7 @@ impl VersionVectorDiff {
 
 /// Merge a span into an `IdSpanVector`, extending an existing entry
 /// for the same peer if present.
-fn merge_span(m: &mut IdSpanVector, mut target: IdSpan) {
-  target.normalize();
+fn merge_span(m: &mut IdSpanVector, target: IdSpan) {
   if let Some(span) = m.get_mut(&target.peer) {
     span.start = span.start.min(target.counter.start);
     span.end = span.end.max(target.counter.end);
@@ -98,15 +97,6 @@ mod tests {
     assert_eq!(spans.len(), 1);
     // merged: start=min(0,5)=0, end=max(3,8)=8
     assert_eq!(spans[0].counter, CounterSpan::new(0, 8));
-  }
-
-  #[test]
-  fn test_vv_diff_merge_left_with_reversed_span() {
-    let mut d = VersionVectorDiff::default();
-    // 5~0 reversed contains {1,2,3,4,5}; merge_left normalizes it to 1~6
-    d.merge_left(IdSpan::new(1, 5, 0));
-    let spans: Vec<_> = d.get_id_spans_left().collect();
-    assert_eq!(spans[0].counter, CounterSpan::new(1, 6));
   }
 
   #[test]

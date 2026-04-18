@@ -19,14 +19,18 @@ impl ContainerIdx {
   pub(crate) const INDEX_MASK: u32 = !Self::TYPE_MASK;
 
   /// Creates a new `ContainerIdx` from an arena index and container type.
+  ///
+  /// The type is encoded in the top 5 bits.  Known types occupy 0..=5;
+  /// unknown types set bit 4 (0b10000) and store the low 4 bits of the
+  /// raw byte.  This means only `Unknown(0)`..=`Unknown(15)` can be
+  /// represented — larger values are silently truncated.
   #[inline]
   pub fn from_index_and_type(index: u32, container_type: ContainerType) -> Self {
-    let prefix = if let ContainerType::Unknown(k) = container_type {
-      (0b10000 | (k as u32 & 0b1111)) << 27
-    } else {
-      (container_type.to_u8() as u32) << 27
+    let type_bits = match container_type {
+      ContainerType::Unknown(k) => 0b10000 | (k & 0b1111),
+      _ => container_type.to_u8() & 0b11111,
     };
-    Self(prefix | (index & Self::INDEX_MASK))
+    Self(((type_bits as u32) << 27) | (index & Self::INDEX_MASK))
   }
 
   /// Returns the container type encoded in this handle.
@@ -74,5 +78,23 @@ mod tests {
     let idx = ContainerIdx::from_index_and_type(42, ContainerType::Map);
     assert_eq!(idx.to_index(), 42);
     assert_eq!(idx.get_type(), ContainerType::Map);
+  }
+
+  #[test]
+  fn test_container_idx_unknown_roundtrip() {
+    // Unknown(255) must not overflow; only the low 4 bits are kept.
+    let idx = ContainerIdx::from_index_and_type(7, ContainerType::Unknown(255));
+    assert!(idx.is_unknown());
+    assert_eq!(idx.to_index(), 7);
+    assert_eq!(idx.get_type(), ContainerType::Unknown(15));
+  }
+
+  #[test]
+  fn test_container_idx_known_types_do_not_overflow() {
+    // All known types fit safely into 5 bits.
+    for ty in &ContainerType::ALL_TYPES {
+      let idx = ContainerIdx::from_index_and_type(0, *ty);
+      assert_eq!(idx.get_type(), *ty);
+    }
   }
 }
