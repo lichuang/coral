@@ -137,7 +137,7 @@ pub enum LoroValue {
 - `PartialEq` 但不实现 `Eq` — f64 的 NaN 问题
 - 提供 `to_json()` / `from_json()` 与 serde_json 互转
 
-- [ ] ### 1.6 Op（操作单元）
+- [x] ### 1.6 Op（操作单元）
 
 ```rust
 // src/op.rs
