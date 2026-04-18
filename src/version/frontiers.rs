@@ -41,6 +41,39 @@ impl Frontiers {
     // Simple append; ancestor pruning is handled by the DAG layer in Loro.
     self.0.push(id);
   }
+
+  /// Returns the single ID if this frontiers contains exactly one.
+  pub fn as_single(&self) -> Option<ID> {
+    if self.0.len() == 1 {
+      Some(self.0[0])
+    } else {
+      None
+    }
+  }
+
+  /// Returns `true` if the frontiers contains the given ID.
+  pub fn contains(&self, id: ID) -> bool {
+    self.0.contains(&id)
+  }
+
+  /// Update frontiers when a new change is added.
+  ///
+  /// Removes all deps (and their ancestors) from the frontiers, then adds
+  /// the new change's last ID.
+  pub fn update_frontiers_on_new_change(&mut self, last_id: ID, deps: &Frontiers) {
+    // Remove any frontier ID that is on the same peer and <= a dep,
+    // because it is now an ancestor of the new change.
+    for dep in deps.iter() {
+      self
+        .0
+        .retain(|id| !(id.peer == dep.peer && id.counter <= dep.counter));
+    }
+    // Also remove any same-peer frontier that is before the new last_id.
+    self
+      .0
+      .retain(|id| !(id.peer == last_id.peer && id.counter < last_id.counter));
+    self.0.push(last_id);
+  }
 }
 
 impl From<Vec<ID>> for Frontiers {

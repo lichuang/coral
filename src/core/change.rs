@@ -62,6 +62,34 @@ impl Change {
   pub fn is_empty(&self) -> bool {
     self.ops.is_empty()
   }
+
+  /// The ID of the last Op in this change.
+  ///
+  /// For an empty change this is the same as `id`.
+  #[inline]
+  pub fn id_last(&self) -> ID {
+    if self.ops.is_empty() {
+      self.id
+    } else {
+      self.id.inc(self.ops.len() as i32 - 1)
+    }
+  }
+
+  /// The exclusive end ID (first ID after this change).
+  #[inline]
+  pub fn id_end(&self) -> ID {
+    self.id.inc(self.ops.len() as i32)
+  }
+
+  /// Returns `true` if `id` falls inside this change's counter range.
+  #[inline]
+  pub fn contains_id(&self, id: ID) -> bool {
+    if self.ops.is_empty() {
+      id == self.id
+    } else {
+      id.peer == self.id.peer && id.counter >= self.id.counter && id.counter < self.id_end().counter
+    }
+  }
 }
 
 #[cfg(test)]

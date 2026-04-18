@@ -281,7 +281,7 @@ impl Arena {
 - `parent` 关系用于事件传播时计算容器路径（如 `root.map.list[3]`）
 - Root 容器没有父节点；Normal 容器在创建时注册其父容器
 
-- [ ] ### 2.2 DAG（有向无环图 / 因果图）
+- [x] ### 2.2 DAG（有向无环图 / 因果图）
 
 ```rust
 // src/dag.rs
