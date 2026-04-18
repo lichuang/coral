@@ -21,21 +21,35 @@ impl ContainerIdx {
   /// Creates a new `ContainerIdx` from an arena index and container type.
   #[inline]
   pub fn from_index_and_type(index: u32, container_type: ContainerType) -> Self {
-    let prefix = (container_type.to_u8() as u32) << 27;
+    let prefix = if let ContainerType::Unknown(k) = container_type {
+      (0b10000 | (k as u32 & 0b1111)) << 27
+    } else {
+      (container_type.to_u8() as u32) << 27
+    };
     Self(prefix | (index & Self::INDEX_MASK))
   }
 
   /// Returns the container type encoded in this handle.
   #[inline]
   pub fn get_type(self) -> ContainerType {
-    let type_byte = ((self.0 & Self::TYPE_MASK) >> 27) as u8;
-    ContainerType::try_from_u8(type_byte).expect("invalid container type in ContainerIdx")
+    let type_value = (self.0 & Self::TYPE_MASK) >> 27;
+    if self.is_unknown() {
+      ContainerType::Unknown((type_value & 0b1111) as u8)
+    } else {
+      ContainerType::try_from_u8(type_value as u8).expect("invalid container type in ContainerIdx")
+    }
   }
 
   /// Returns the arena table index.
   #[inline]
   pub fn to_index(self) -> u32 {
     self.0 & Self::INDEX_MASK
+  }
+
+  /// Returns `true` if the encoded type is [`ContainerType::Unknown`].
+  #[inline]
+  pub fn is_unknown(self) -> bool {
+    self.0 >> 31 == 1
   }
 }
 

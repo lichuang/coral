@@ -30,14 +30,17 @@ pub enum ContainerType {
   /// A collaborative text buffer using the Fugue algorithm.
   Text = 2,
 
-  /// An ordered sequence where elements can be moved (MovableList CRDT).
-  MovableList = 3,
-
   /// A hierarchical tree structure where nodes can be reparented.
-  Tree = 4,
+  Tree = 3,
+
+  /// An ordered sequence where elements can be moved (MovableList CRDT).
+  MovableList = 4,
 
   /// A distributed counter supporting positive and negative increments.
   Counter = 5,
+
+  /// An unknown container type, used for forward compatibility.
+  Unknown(u8),
 }
 
 impl ContainerType {
@@ -46,30 +49,39 @@ impl ContainerType {
     ContainerType::Map,
     ContainerType::List,
     ContainerType::Text,
-    ContainerType::MovableList,
     ContainerType::Tree,
+    ContainerType::MovableList,
     ContainerType::Counter,
   ];
 
   /// Returns the single-byte discriminant.
   #[inline]
   pub const fn to_u8(self) -> u8 {
-    self as u8
+    match self {
+      Self::Map => 0,
+      Self::List => 1,
+      Self::Text => 2,
+      Self::Tree => 3,
+      Self::MovableList => 4,
+      Self::Counter => 5,
+      Self::Unknown(k) => k,
+    }
   }
 
   /// Parses a `ContainerType` from its single-byte discriminant.
   ///
-  /// Returns `None` if the byte does not correspond to a known variant.
+  /// Returns `Unknown(v)` for unrecognized bytes rather than `None`,
+  /// enabling forward compatibility with future container types.
   #[inline]
   pub const fn try_from_u8(v: u8) -> Option<Self> {
     match v {
-      0 => Some(ContainerType::Map),
-      1 => Some(ContainerType::List),
-      2 => Some(ContainerType::Text),
-      3 => Some(ContainerType::MovableList),
-      4 => Some(ContainerType::Tree),
-      5 => Some(ContainerType::Counter),
-      _ => None,
+      0 => Some(Self::Map),
+      1 => Some(Self::List),
+      2 => Some(Self::Text),
+      3 => Some(Self::Tree),
+      4 => Some(Self::MovableList),
+      5 => Some(Self::Counter),
+      x => Some(Self::Unknown(x)),
     }
   }
 }
@@ -80,9 +92,10 @@ impl std::fmt::Display for ContainerType {
       ContainerType::Map => write!(f, "Map"),
       ContainerType::List => write!(f, "List"),
       ContainerType::Text => write!(f, "Text"),
-      ContainerType::MovableList => write!(f, "MovableList"),
       ContainerType::Tree => write!(f, "Tree"),
+      ContainerType::MovableList => write!(f, "MovableList"),
       ContainerType::Counter => write!(f, "Counter"),
+      ContainerType::Unknown(k) => write!(f, "Unknown({k})"),
     }
   }
 }
@@ -96,8 +109,8 @@ impl std::str::FromStr for ContainerType {
       "Map" | "map" => Ok(ContainerType::Map),
       "List" | "list" => Ok(ContainerType::List),
       "Text" | "text" => Ok(ContainerType::Text),
-      "MovableList" | "movablelist" | "movable_list" => Ok(ContainerType::MovableList),
       "Tree" | "tree" => Ok(ContainerType::Tree),
+      "MovableList" | "movablelist" | "movable_list" => Ok(ContainerType::MovableList),
       "Counter" | "counter" => Ok(ContainerType::Counter),
       _ => Err(()),
     }
@@ -329,9 +342,15 @@ mod tests {
   }
 
   #[test]
-  fn test_container_type_invalid_byte() {
-    assert!(ContainerType::try_from_u8(6).is_none());
-    assert!(ContainerType::try_from_u8(255).is_none());
+  fn test_container_type_unknown_byte() {
+    assert_eq!(
+      ContainerType::try_from_u8(6),
+      Some(ContainerType::Unknown(6))
+    );
+    assert_eq!(
+      ContainerType::try_from_u8(255),
+      Some(ContainerType::Unknown(255))
+    );
   }
 
   #[test]
@@ -342,12 +361,12 @@ mod tests {
 
   #[test]
   fn test_container_type_discriminants() {
-    assert_eq!(ContainerType::Map as u8, 0);
-    assert_eq!(ContainerType::List as u8, 1);
-    assert_eq!(ContainerType::Text as u8, 2);
-    assert_eq!(ContainerType::MovableList as u8, 3);
-    assert_eq!(ContainerType::Tree as u8, 4);
-    assert_eq!(ContainerType::Counter as u8, 5);
+    assert_eq!(ContainerType::Map.to_u8(), 0);
+    assert_eq!(ContainerType::List.to_u8(), 1);
+    assert_eq!(ContainerType::Text.to_u8(), 2);
+    assert_eq!(ContainerType::Tree.to_u8(), 3);
+    assert_eq!(ContainerType::MovableList.to_u8(), 4);
+    assert_eq!(ContainerType::Counter.to_u8(), 5);
   }
 
   // ── ContainerID tests ─────────────────────────────────────────────────
