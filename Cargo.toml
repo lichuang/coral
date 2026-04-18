@@ -8,6 +8,7 @@ description = "A composable CRDT library for collaborative applications. "
 repository = "https://github.com/lichuang/coral"
 
 [dependencies]
+im = "15"
 rustc-hash = "2.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

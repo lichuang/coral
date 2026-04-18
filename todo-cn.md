@@ -126,7 +126,7 @@ pub enum LoroValue {
     F64(f64),
     String(String),
     List(Vec<LoroValue>),
-    Map(IndexMap<String, LoroValue>),  // 用 IndexMap 保序
+    Map(FxHashMap<String, LoroValue>),  // 用 IndexMap 保序
     Container(ContainerID),            // 引用子容器
 }
 ```
