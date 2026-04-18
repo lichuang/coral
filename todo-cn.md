@@ -1494,3 +1494,14 @@ impl Encode for Snapshot { ... }
 ```
 
 Loro 使用 `serde_columnar` 做列式压缩编码，初期可以用 `serde + postcard/bincode` 做简单二进制编码。
+
+---
+
+## 统计
+
+| 指标 | 数量 |
+|------|------|
+| 已完成 | 8 |
+| 未完成 | 45 |
+| 总数 | 53 |
+| 完成百分比 | 15.1% |
