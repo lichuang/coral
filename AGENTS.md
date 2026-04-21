@@ -148,6 +148,7 @@ pub enum CoralError {
 - [ ] **Update `todo.md`** immediately: change the checkbox from `- [ ]` to `- [x]` for the completed item.
 - [ ] Do not batch these updates. Mark the task as done in the same turn where the implementation is finished.
 - [ ] If a task is partially completed or blocked, leave it unchecked and add a `<!-- NOTE: ... -->` comment below it explaining the blocker.
+- [ ] **Use only `[ ]` and `[x]` for task status**. Do not use textual markers like "已完成", "DONE", "pending", or "in progress" anywhere in `todo.md`. Checkboxes are the single source of truth for completion state.
 
 ### When Implementing a New CRDT, You Must Check
 

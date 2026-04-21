@@ -248,8 +248,10 @@ pub struct IdSpan {
 - [ ] ### 1.10 RLE 基础设施（Run-Length Encoding）
 
 > **核心公共组件**。Loro 中 `Change` 的 ops 存储、`Op` 的合并与切片、`CounterSpan` / `IdSpan` 的区间操作都依赖 RLE traits。必须在进入 Phase 2 之前完整实现，否则后续所有涉及 Change 切片、Op 合并、Checkout 时按版本截取变更的功能都无法正确工作。
+>
+> <!-- NOTE: 1.10.1 traits 已定义；1.10.2–1.10.4 待实现 -->
 
-#### 1.10.1 RLE 核心 Traits
+- [x] #### 1.10.1 RLE 核心 Traits
 
 ```rust
 // src/rle.rs
@@ -289,7 +291,7 @@ pub trait Mergable {
 - `Sliceable::slice` 要求 `from < to` 且 `to <= self.atom_len()`
 - `Mergable` 的 `Config` 用于传递合并策略参数（如 Loro 中 `Change::can_merge_right` 需要 `merge_interval` 和 `commit_msg` 比较）
 
-#### 1.10.2 RleVec — RLE 编码的 Vec
+- [ ] #### 1.10.2 RleVec — RLE 编码的 Vec
 
 ```rust
 // src/rle/rle_vec.rs
@@ -320,7 +322,7 @@ impl<T: Mergable + HasLength + Sliceable + Debug> RleVec<T> {
 - `slice`：遍历 Run，对每个 Run 做 `Sliceable::slice`，收集结果到新的 `RleVec`
 - `atom_len`：惰性计算或增量维护，用于快速知道总原子操作数
 
-#### 1.10.3 为现有类型实现 RLE traits
+- [ ] #### 1.10.3 为现有类型实现 RLE traits
 
 **CounterSpan / IdSpan**：
 ```rust
@@ -381,7 +383,7 @@ impl Sliceable for Change {
 - `Change::slice` 的实现依赖于 `Op::slice`，因此 `Op::slice` 必须先正确实现
 - `Op::slice` 对 List Insert 的切片需要访问 Arena 中的 value 数据（因为 Op 内部存储的是 `SliceRange` 而非直接值），这部分在 Arena 就绪后补全
 
-#### 1.10.4 RLE 测试要求
+- [ ] #### 1.10.4 RLE 测试要求
 
 - [ ] `CounterSpan` 的 `slice` 和 `merge` 正确性
 - [ ] `RleVec::push` 自动合并行为
