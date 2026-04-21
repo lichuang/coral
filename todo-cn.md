@@ -26,7 +26,7 @@ Phase 6: 高级与优化（Fugue、RichText、GC、Encoding、性能）
 
 ## Phase 1: 基础类型与核心协议
 
-> 一切依赖的起点。已完成。
+> 一切依赖的起点。RLE 基础设施尚未完成，因此 Phase 1 整体仍为未完成状态。
 
 - [x] ### 1.1 类型别名
 
@@ -244,6 +244,151 @@ pub struct IdSpan {
 **要点**：
 - 用于批量操作、区间查询、编码压缩（连续的 Op 可以合并传输）
 - `IdSpan` 是 `Change` 中多个 `Op` 的 ID 范围表示
+
+- [ ] ### 1.10 RLE 基础设施（Run-Length Encoding）
+
+> **核心公共组件**。Loro 中 `Change` 的 ops 存储、`Op` 的合并与切片、`CounterSpan` / `IdSpan` 的区间操作都依赖 RLE traits。必须在进入 Phase 2 之前完整实现，否则后续所有涉及 Change 切片、Op 合并、Checkout 时按版本截取变更的功能都无法正确工作。
+
+#### 1.10.1 RLE 核心 Traits
+
+```rust
+// src/rle.rs
+
+/// 一个 RLE 元素具有原子长度（即包含多少个不可再细分的操作单元）
+pub trait HasLength {
+    fn content_len(&self) -> usize;
+    fn atom_len(&self) -> usize { self.content_len() }
+}
+
+/// 元素具有起始索引（用于 Counter 定位）
+pub trait HasIndex {
+    type Int;
+    fn get_start_index(&self) -> Self::Int;
+}
+
+/// 元素可以按原子索引切片
+///
+/// 切片后返回的新元素的 atom_len() == to - from
+pub trait Sliceable {
+    fn slice(&self, from: usize, to: usize) -> Self;
+}
+
+/// 相邻的两个 RLE 元素可以合并
+///
+/// 当两个元素在存储上连续且内容可合并时（如连续的 Insert 文本、连续的 Counter 增量），
+/// 合并以减少内存占用和传输开销。
+pub trait Mergable {
+    type Config;
+    fn is_mergable(&self, other: &Self, conf: &Self::Config) -> bool;
+    fn merge(&mut self, other: &Self, conf: &Self::Config);
+}
+```
+
+**设计要点**：
+- `HasLength` 区分 `content_len`（内容语义长度，如插入 3 个字符）和 `atom_len`（原子操作数，如 3 个独立的 Counter 增量）
+- `Sliceable::slice` 要求 `from < to` 且 `to <= self.atom_len()`
+- `Mergable` 的 `Config` 用于传递合并策略参数（如 Loro 中 `Change::can_merge_right` 需要 `merge_interval` 和 `commit_msg` 比较）
+
+#### 1.10.2 RleVec — RLE 编码的 Vec
+
+```rust
+// src/rle/rle_vec.rs
+
+/// 一个 Run-Length Encoded 的 Vec。
+///
+/// 内部存储的是已合并的 "Run"，每个 Run 是一个实现了 Mergable + HasLength + Sliceable 的元素。
+///  push 时会尝试与最后一个元素合并；若不能合并则追加新元素。
+pub struct RleVec<T, const N: usize = 1> {
+    vec: SmallVec<[T; N]>,
+}
+
+impl<T: Mergable + HasLength + Sliceable + Debug> RleVec<T> {
+    pub fn new() -> Self;
+    pub fn push(&mut self, value: T);
+    pub fn last(&self) -> Option<&T>;
+    pub fn last_mut(&mut self) -> Option<&mut T>;
+    pub fn len(&self) -> usize;           // Run 的数量
+    pub fn atom_len(&self) -> usize;      // 所有 Run 的 atom_len 之和
+    pub fn slice(&self, from: usize, to: usize) -> Self;
+    pub fn iter(&self) -> impl Iterator<Item = &T>;
+    pub fn get(&self, index: usize) -> Option<&T>;
+}
+```
+
+**关键行为**：
+- `push`：先尝试 `self.last_mut().merge(&value)`，失败则 `vec.push(value)`
+- `slice`：遍历 Run，对每个 Run 做 `Sliceable::slice`，收集结果到新的 `RleVec`
+- `atom_len`：惰性计算或增量维护，用于快速知道总原子操作数
+
+#### 1.10.3 为现有类型实现 RLE traits
+
+**CounterSpan / IdSpan**：
+```rust
+impl HasLength for CounterSpan { ... }
+impl Sliceable for CounterSpan { ... }
+impl Mergable for CounterSpan {
+    // 同 peer、连续区间可合并
+}
+```
+
+**Op**：
+```rust
+impl HasLength for Op {
+    fn content_len(&self) -> usize {
+        self.content.content_len()
+    }
+}
+
+impl Sliceable for Op {
+    // 按 content 类型分发：Map/Tree/Counter 不可切（from==0 && to==1 时 clone）
+    // List/Text 的 Insert 可按字符/元素切片
+}
+
+impl Mergable for Op {
+    // 同 container、连续 counter、同类型内容可合并
+    // 如两个连续的 List Insert 文本可合并为一个大 Insert
+}
+```
+
+**Change**：
+```rust
+impl HasLength for Change {
+    fn content_len(&self) -> usize {
+        self.ops.atom_len()
+    }
+}
+
+impl HasIndex for Change {
+    type Int = Counter;
+    fn get_start_index(&self) -> Counter {
+        self.id.counter
+    }
+}
+
+impl Sliceable for Change {
+    fn slice(&self, from: usize, to: usize) -> Self {
+        // 1. 计算目标 counter 范围 [self.id.counter + from, self.id.counter + to)
+        // 2. 遍历 self.ops（RleVec），对 intersect 的 Op 做 slice
+        // 3. 新 Change 的 id = self.id.inc(from as Counter)
+        // 4. 新 Change 的 deps = if from > 0 { Frontiers::from_id(self.id.inc(from - 1)) } else { self.deps.clone() }
+        // 5. lamport 相应偏移
+    }
+}
+```
+
+**要点**：
+- `Change::slice` 是 Checkout / Time Travel 的核心：当需要回退到 Change 中间某个 Op 时，必须能切出前半部分或后半部分
+- `Change::slice` 的实现依赖于 `Op::slice`，因此 `Op::slice` 必须先正确实现
+- `Op::slice` 对 List Insert 的切片需要访问 Arena 中的 value 数据（因为 Op 内部存储的是 `SliceRange` 而非直接值），这部分在 Arena 就绪后补全
+
+#### 1.10.4 RLE 测试要求
+
+- [ ] `CounterSpan` 的 `slice` 和 `merge` 正确性
+- [ ] `RleVec::push` 自动合并行为
+- [ ] `RleVec::slice` 任意子区间切片后 atom_len 正确
+- [ ] `Change::slice` 从中间切开，新 Change 的 id/deps/lamport 正确
+- [ ] `Op::slice` 对 List Insert 切片后内容正确
+- [ ] `Mergable` 的幂等性：合并后再 push 相同内容不会二次合并
 
 ---
 
