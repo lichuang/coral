@@ -249,7 +249,7 @@ pub struct IdSpan {
 
 > **核心公共组件**。Loro 中 `Change` 的 ops 存储、`Op` 的合并与切片、`CounterSpan` / `IdSpan` 的区间操作都依赖 RLE traits。必须在进入 Phase 2 之前完整实现，否则后续所有涉及 Change 切片、Op 合并、Checkout 时按版本截取变更的功能都无法正确工作。
 >
-> <!-- NOTE: 1.10.1 traits 已定义；1.10.2–1.10.4 待实现 -->
+> <!-- NOTE: 1.10.1 traits 已定义；1.10.2 RleVec 已完成；1.10.3–1.10.4 待实现 -->
 
 - [x] #### 1.10.1 RLE 核心 Traits
 
@@ -291,7 +291,7 @@ pub trait Mergable {
 - `Sliceable::slice` 要求 `from < to` 且 `to <= self.atom_len()`
 - `Mergable` 的 `Config` 用于传递合并策略参数（如 Loro 中 `Change::can_merge_right` 需要 `merge_interval` 和 `commit_msg` 比较）
 
-- [ ] #### 1.10.2 RleVec — RLE 编码的 Vec
+- [x] #### 1.10.2 RleVec — RLE 编码的 Vec
 
 ```rust
 // src/rle/rle_vec.rs
@@ -386,11 +386,11 @@ impl Sliceable for Change {
 - [ ] #### 1.10.4 RLE 测试要求
 
 - [ ] `CounterSpan` 的 `slice` 和 `merge` 正确性
-- [ ] `RleVec::push` 自动合并行为
-- [ ] `RleVec::slice` 任意子区间切片后 atom_len 正确
+- [x] `RleVec::push` 自动合并行为
+- [x] `RleVec::slice` 任意子区间切片后 atom_len 正确
 - [ ] `Change::slice` 从中间切开，新 Change 的 id/deps/lamport 正确
 - [ ] `Op::slice` 对 List Insert 切片后内容正确
-- [ ] `Mergable` 的幂等性：合并后再 push 相同内容不会二次合并
+- [x] `Mergable` 的幂等性：合并后再 push 相同内容不会二次合并
 
 ---
 
