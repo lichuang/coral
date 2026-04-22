@@ -4,7 +4,11 @@
 
 **Coral** is a Rust implementation of CRDTs (Conflict-free Replicated Data Types). The goal is to provide a complete, embeddable local-first data structure without relying on external runtimes (such as Yjs/Loro's WASM bindings or specific transport layers).
 
-This project is heavily inspired by [Loro](https://github.com/loro-dev/loro)'s architecture, but pursues a **minimal comprehensible implementation**: keeping the core algorithms while stripping away encoding compression, network sync protocols, WASM FFI, and other non-essential complexities.
+This project is heavily inspired by [Loro](https://github.com/loro-dev/loro)'s architecture. Coral pursues a **minimal comprehensible implementation** that keeps the core algorithms while stripping away encoding compression, network sync protocols, WASM FFI, and other non-essential complexities.
+
+### Alignment with Loro
+
+Every feature that **is already implemented** in Coral must stay **structurally and behaviorally aligned** with Loro's counterpart (types, traits, field names, method signatures, and core semantics). Partial implementation per phase is acceptable—e.g., a Phase may only introduce the Counter CRDT while List remains a stub—but whatever exists must match Loro's design so that future porting of algorithms (checkout, diff, encoding) can be done with minimal friction.
 
 ### Core Design Principles
 
