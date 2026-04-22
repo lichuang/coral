@@ -38,7 +38,7 @@ impl Frontiers {
 
   /// Adds a new leaf ID, removing any of its ancestors if present.
   pub fn push(&mut self, id: ID) {
-    // Simple append; ancestor pruning is handled by the DAG layer in Loro.
+    // Simple append; ancestor pruning is handled by the DAG layer.
     self.0.push(id);
   }
 

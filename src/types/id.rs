@@ -48,8 +48,9 @@ impl ID {
 
 /// Deterministic ordering: first by `peer`, then by `counter`.
 ///
-/// This ordering matches the derived `Ord` semantics in Loro, where the
-/// struct field declaration order (`peer` before `counter`) determines the
+/// Deterministic ordering: first by `peer`, then by `counter`.
+///
+/// The struct field declaration order (`peer` before `counter`) determines the
 /// lexicographic comparison. It is used for RGA tie-breaking and for
 /// collections (e.g. `BTreeMap<ID, _>`) that require a total order.
 impl PartialOrd for ID {

@@ -16,6 +16,7 @@ mod content;
 pub use content::*;
 
 use crate::core::container::ContainerIdx;
+use crate::rle::{HasIndex, HasLength, Mergable, Sliceable};
 use crate::types::{Counter, ID, PeerID};
 
 /// A single atomic operation.
@@ -50,6 +51,26 @@ impl Op {
   pub fn id(&self, peer: PeerID) -> ID {
     ID::new(peer, self.counter)
   }
+
+  /// Inclusive start counter of this op.
+  #[inline]
+  pub fn ctr_start(&self) -> Counter {
+    self.counter
+  }
+
+  /// Exclusive end counter of this op.
+  #[inline]
+  pub fn ctr_end(&self) -> Counter {
+    self.counter + self.atom_len() as Counter
+  }
+}
+
+impl HasIndex for Op {
+  type Int = Counter;
+
+  fn get_start_index(&self) -> Self::Int {
+    self.counter
+  }
 }
 
 /// An [`Op`] paired with its peer so that the full [`ID`] can be recovered.
@@ -76,6 +97,52 @@ impl OpWithId {
     let start = self.op.counter;
     let end = start + 1;
     crate::version::IdSpan::new(self.peer, start, end)
+  }
+}
+
+// ── RLE traits for Op ──────────────────────────────────────────────────────
+
+impl HasLength for Op {
+  fn content_len(&self) -> usize {
+    self.content.content_len()
+  }
+}
+
+impl Sliceable for Op {
+  fn slice(&self, from: usize, to: usize) -> Self {
+    let len = self.atom_len();
+    assert!(
+      from < to && to <= len,
+      "Op::slice out of bounds: [{from}, {to}) for len {len}"
+    );
+    if from == 0 && to == len {
+      self.clone()
+    } else {
+      Self {
+        counter: self.counter,
+        container: self.container,
+        content: self.content.slice(from, to),
+      }
+    }
+  }
+}
+
+impl Mergable for Op {
+  fn is_mergable(&self, other: &Self, _conf: &()) -> bool {
+    self.container == other.container
+      && self.counter + self.atom_len() as Counter == other.counter
+      && std::mem::discriminant(&self.content) == std::mem::discriminant(&other.content)
+      && self.content.is_mergable(&other.content, &())
+  }
+
+  fn merge(&mut self, other: &Self, _conf: &()) {
+    assert!(
+      self.is_mergable(other, &()),
+      "cannot merge Ops: counters={}..{}, discriminant mismatch, or content not mergable",
+      self.counter,
+      other.counter
+    );
+    self.content.merge(&other.content, &());
   }
 }
 
@@ -125,5 +192,81 @@ mod tests {
     let _ = Op::new(0, text_c, OpContent::Text(TextOp));
     let _ = Op::new(0, tree_c, OpContent::Tree(TreeOp));
     let _ = Op::new(0, counter_c, OpContent::Counter(CounterOp));
+  }
+
+  // ── RLE traits ───────────────────────────────────────────────────
+
+  #[test]
+  fn test_op_has_length() {
+    let mut arena = Arena::new();
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
+    let op = Op::new(0, c, OpContent::Counter(CounterOp));
+    assert_eq!(op.content_len(), 1);
+    assert_eq!(op.atom_len(), 1);
+  }
+
+  #[test]
+  fn test_op_sliceable_whole() {
+    let mut arena = Arena::new();
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
+    let op = Op::new(5, c, OpContent::Counter(CounterOp));
+    let sliced = op.slice(0, 1);
+    assert_eq!(sliced.counter, 5);
+    assert_eq!(sliced.container, c);
+  }
+
+  #[test]
+  #[should_panic(expected = "Op::slice out of bounds")]
+  fn test_op_sliceable_empty_range_panics() {
+    let mut arena = Arena::new();
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
+    let op = Op::new(0, c, OpContent::Counter(CounterOp));
+    let _ = op.slice(0, 0); // empty range, should panic on assert in Op::slice
+  }
+
+  #[test]
+  #[should_panic(expected = "OpContent is atomic")]
+  fn test_op_content_sliceable_panics() {
+    let content = OpContent::Counter(CounterOp);
+    let _ = content.slice(0, 0); // empty range on atomic content
+  }
+
+  #[test]
+  fn test_op_mergable_same_container_contiguous() {
+    let mut arena = Arena::new();
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
+    let a = Op::new(0, c, OpContent::Counter(CounterOp));
+    let b = Op::new(1, c, OpContent::Counter(CounterOp));
+    // Placeholder content is not mergable (default false), so Op::is_mergable returns false.
+    assert!(!a.is_mergable(&b, &()));
+  }
+
+  #[test]
+  fn test_op_not_mergable_different_container() {
+    let mut arena = Arena::new();
+    let c1 = arena.register(&ContainerID::new_root("a", ContainerType::Counter));
+    let c2 = arena.register(&ContainerID::new_root("b", ContainerType::Counter));
+    let a = Op::new(0, c1, OpContent::Counter(CounterOp));
+    let b = Op::new(1, c2, OpContent::Counter(CounterOp));
+    assert!(!a.is_mergable(&b, &()));
+  }
+
+  #[test]
+  fn test_op_not_mergable_non_contiguous() {
+    let mut arena = Arena::new();
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
+    let a = Op::new(0, c, OpContent::Counter(CounterOp));
+    let b = Op::new(2, c, OpContent::Counter(CounterOp));
+    assert!(!a.is_mergable(&b, &()));
+  }
+
+  #[test]
+  fn test_op_not_mergable_different_variant() {
+    let mut arena = Arena::new();
+    let c1 = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
+    let c2 = arena.register(&ContainerID::new_root("m", ContainerType::Map));
+    let a = Op::new(0, c1, OpContent::Counter(CounterOp));
+    let b = Op::new(1, c2, OpContent::Map(MapOp));
+    assert!(!a.is_mergable(&b, &()));
   }
 }

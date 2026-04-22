@@ -10,5 +10,5 @@ mod value;
 
 pub use container::{ContainerID, ContainerType};
 pub use id::ID;
-pub use primitives::{Counter, Lamport, PeerID};
+pub use primitives::{Counter, Lamport, PeerID, Timestamp};
 pub use value::CoralValue;

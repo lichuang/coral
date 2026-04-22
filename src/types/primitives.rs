@@ -23,3 +23,9 @@ pub type Counter = i32;
 /// the one with the higher `Lamport` value is considered "later".
 /// If `Lamport` values are equal, `PeerID` is used as a deterministic tie-breaker.
 pub type Lamport = u32;
+
+/// Physical timestamp in seconds since the Unix epoch.
+///
+/// Used to record wall-clock time for each [`Change`](crate::core::change::Change).
+/// Note: this is stored in **seconds**, not milliseconds.
+pub type Timestamp = i64;

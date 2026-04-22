@@ -7,9 +7,10 @@
 //! **Design note**:  Direction semantics for deletions (e.g. a reversed delete
 //! span) live in a separate [`DeleteSpan`](crate::op::DeleteSpan) type rather
 //! than being folded into `CounterSpan`.  Keeping the two concerns separate
-//! matches Loro's design and avoids the ambiguity that `start > end` creates
-//! for a generic range type.
+//! Keeping the two concerns separate matches the reference design and avoids
+//! the ambiguity that `start > end` creates for a generic range type.
 
+use crate::rle::{HasIndex, HasLength, Mergable, Sliceable};
 use crate::types::{Counter, ID, PeerID};
 
 /// A right-open counter interval `[start, end)`.
@@ -93,6 +94,41 @@ impl CounterSpan {
   }
 }
 
+impl HasLength for CounterSpan {
+  fn content_len(&self) -> usize {
+    self.len()
+  }
+}
+
+impl Sliceable for CounterSpan {
+  fn slice(&self, from: usize, to: usize) -> Self {
+    assert!(from < to && to <= self.len(), "slice out of bounds");
+    Self::new(self.start + from as Counter, self.start + to as Counter)
+  }
+}
+
+impl Mergable for CounterSpan {
+  fn is_mergable(&self, other: &Self, _conf: &()) -> bool {
+    self.end == other.start
+  }
+
+  fn merge(&mut self, other: &Self, _conf: &()) {
+    assert!(
+      self.is_mergable(other, &()),
+      "cannot merge non-contiguous spans"
+    );
+    self.end = other.end;
+  }
+}
+
+impl HasIndex for CounterSpan {
+  type Int = Counter;
+
+  fn get_start_index(&self) -> Self::Int {
+    self.start
+  }
+}
+
 /// A span identified by both a peer and a counter range.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct IdSpan {
@@ -146,6 +182,45 @@ impl IdSpan {
       peer: self.peer,
       counter,
     })
+  }
+}
+
+impl HasLength for IdSpan {
+  fn content_len(&self) -> usize {
+    self.len()
+  }
+}
+
+impl Sliceable for IdSpan {
+  fn slice(&self, from: usize, to: usize) -> Self {
+    assert!(from < to && to <= self.len(), "slice out of bounds");
+    Self::new(
+      self.peer,
+      self.counter.start + from as Counter,
+      self.counter.start + to as Counter,
+    )
+  }
+}
+
+impl Mergable for IdSpan {
+  fn is_mergable(&self, other: &Self, _conf: &()) -> bool {
+    self.peer == other.peer && self.counter.end == other.counter.start
+  }
+
+  fn merge(&mut self, other: &Self, _conf: &()) {
+    assert!(
+      self.is_mergable(other, &()),
+      "cannot merge non-contiguous IdSpans"
+    );
+    self.counter.end = other.counter.end;
+  }
+}
+
+impl HasIndex for IdSpan {
+  type Int = Counter;
+
+  fn get_start_index(&self) -> Self::Int {
+    self.counter.start
   }
 }
 
@@ -271,5 +346,89 @@ mod tests {
     let span = IdSpan::new(1, 0, 5);
     assert!(!span.contains(ID::new(2, 2)));
     assert!(!span.contains(ID::new(0, 2)));
+  }
+
+  // ── RLE traits: CounterSpan ──────────────────────────────────────
+
+  #[test]
+  fn test_counter_span_has_length() {
+    let s = CounterSpan::new(3, 8);
+    assert_eq!(s.content_len(), 5);
+    assert_eq!(s.atom_len(), 5);
+  }
+
+  #[test]
+  fn test_counter_span_sliceable() {
+    let s = CounterSpan::new(0, 5);
+    let sliced = s.slice(1, 4);
+    assert_eq!(sliced, CounterSpan::new(1, 4));
+  }
+
+  #[test]
+  fn test_counter_span_mergable() {
+    let mut a = CounterSpan::new(0, 3);
+    let b = CounterSpan::new(3, 5);
+    assert!(a.is_mergable(&b, &()));
+    a.merge(&b, &());
+    assert_eq!(a, CounterSpan::new(0, 5));
+  }
+
+  #[test]
+  fn test_counter_span_not_mergable_when_gap() {
+    let a = CounterSpan::new(0, 3);
+    let b = CounterSpan::new(4, 5);
+    assert!(!a.is_mergable(&b, &()));
+  }
+
+  #[test]
+  fn test_counter_span_has_index() {
+    let s = CounterSpan::new(10, 20);
+    assert_eq!(s.get_start_index(), 10);
+    assert_eq!(s.get_end_index(), 20);
+  }
+
+  // ── RLE traits: IdSpan ───────────────────────────────────────────
+
+  #[test]
+  fn test_id_span_has_length() {
+    let s = IdSpan::new(1, 3, 8);
+    assert_eq!(s.content_len(), 5);
+  }
+
+  #[test]
+  fn test_id_span_sliceable() {
+    let s = IdSpan::new(1, 0, 5);
+    let sliced = s.slice(1, 4);
+    assert_eq!(sliced, IdSpan::new(1, 1, 4));
+  }
+
+  #[test]
+  fn test_id_span_mergable_same_peer() {
+    let mut a = IdSpan::new(1, 0, 3);
+    let b = IdSpan::new(1, 3, 5);
+    assert!(a.is_mergable(&b, &()));
+    a.merge(&b, &());
+    assert_eq!(a, IdSpan::new(1, 0, 5));
+  }
+
+  #[test]
+  fn test_id_span_not_mergable_different_peer() {
+    let a = IdSpan::new(1, 0, 3);
+    let b = IdSpan::new(2, 3, 5);
+    assert!(!a.is_mergable(&b, &()));
+  }
+
+  #[test]
+  fn test_id_span_not_mergable_when_gap() {
+    let a = IdSpan::new(1, 0, 3);
+    let b = IdSpan::new(1, 4, 5);
+    assert!(!a.is_mergable(&b, &()));
+  }
+
+  #[test]
+  fn test_id_span_has_index() {
+    let s = IdSpan::new(1, 10, 20);
+    assert_eq!(s.get_start_index(), 10);
+    assert_eq!(s.get_end_index(), 20);
   }
 }

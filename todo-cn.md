@@ -322,7 +322,7 @@ impl<T: Mergable + HasLength + Sliceable + Debug> RleVec<T> {
 - `slice`：遍历 Run，对每个 Run 做 `Sliceable::slice`，收集结果到新的 `RleVec`
 - `atom_len`：惰性计算或增量维护，用于快速知道总原子操作数
 
-- [ ] #### 1.10.3 为现有类型实现 RLE traits
+- [x] #### 1.10.3 为现有类型实现 RLE traits
 
 **CounterSpan / IdSpan**：
 ```rust
@@ -383,13 +383,13 @@ impl Sliceable for Change {
 - `Change::slice` 的实现依赖于 `Op::slice`，因此 `Op::slice` 必须先正确实现
 - `Op::slice` 对 List Insert 的切片需要访问 Arena 中的 value 数据（因为 Op 内部存储的是 `SliceRange` 而非直接值），这部分在 Arena 就绪后补全
 
-- [ ] #### 1.10.4 RLE 测试要求
+- [x] #### 1.10.4 RLE 测试要求
 
-- [ ] `CounterSpan` 的 `slice` 和 `merge` 正确性
+- [x] `CounterSpan` 的 `slice` 和 `merge` 正确性
 - [x] `RleVec::push` 自动合并行为
 - [x] `RleVec::slice` 任意子区间切片后 atom_len 正确
-- [ ] `Change::slice` 从中间切开，新 Change 的 id/deps/lamport 正确
-- [ ] `Op::slice` 对 List Insert 切片后内容正确
+- [x] `Change::slice` 从中间切开，新 Change 的 id/deps/lamport 正确
+- [ ] `Op::slice` 对 List Insert 切片后内容正确（待 Phase 6 实现 ListOp 后补全）
 - [x] `Mergable` 的幂等性：合并后再 push 相同内容不会二次合并
 
 ---

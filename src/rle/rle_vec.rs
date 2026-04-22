@@ -15,6 +15,14 @@ use super::{HasIndex, HasLength, Mergable, RleCollection, SearchResult, SliceIte
 /// `push` tries to merge the new element with the last stored run; if they are
 /// not mergeable the element is appended as a new run.
 ///
+/// # Ordering invariant
+///
+/// All index-based queries (`search_atom_index`, `get_by_atom_index`,
+/// `slice_by_index`, etc.) rely on binary search and thus require that the
+/// underlying runs are stored in **strictly ascending order of
+/// `get_start_index()`**.  This holds automatically when elements are pushed
+/// in order; out-of-order insertion will break these methods.
+///
 /// Backed by `SmallVec<A>` so that small arrays stay on the stack.
 pub struct RleVec<A: Array> {
   _p: PhantomData<fn() -> A::Item>,
@@ -219,6 +227,11 @@ where
     })
   }
 
+  /// Returns the index of the merged run that contains `index`.
+  ///
+  /// Uses binary search, so the runs must be sorted by `get_start_index()`.
+  /// The returned index is the greatest run whose `get_start_index()` is
+  /// less than or equal to `index`.
   pub fn search_atom_index(&self, index: <<A as Array>::Item as HasIndex>::Int) -> usize {
     let mut start = 0;
     let mut end = self.vec.len().saturating_sub(1);

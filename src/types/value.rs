@@ -207,7 +207,7 @@ impl std::hash::Hash for CoralMapValue {
 ///
 /// `CoralValue` is what users read and write when interacting with
 /// CRDT containers. Heap-allocated variants (`String`, `List`, `Map`, `Binary`)
-/// are backed by `Arc` for O(1) clone, matching Loro's design.
+/// are backed by `Arc` for O(1) clone.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum CoralValue {
   /// JSON `null`.
@@ -220,7 +220,7 @@ pub enum CoralValue {
   /// 64-bit floating point (IEEE 754).
   ///
   /// Note: `NaN != NaN` by `PartialEq`, but `Hash` uses `to_bits()` for
-  /// consistent hashing of the same bit pattern (matching Loro's trade-off).
+  /// consistent hashing of the same bit pattern.
   Double(f64),
   /// Raw binary data.
   Binary(CoralBinaryValue),
@@ -237,7 +237,7 @@ pub enum CoralValue {
   Container(ContainerID),
 }
 
-// Blank Eq impl — same approach as Loro.
+// Blank Eq impl — we consider all NaN values equal for hashing purposes.
 impl Eq for CoralValue {}
 
 impl std::hash::Hash for CoralValue {
@@ -415,7 +415,7 @@ impl CoralValue {
 }
 
 // ---------------------------------------------------------------------------
-// From impls (matching Loro)
+// From impls
 // ---------------------------------------------------------------------------
 
 impl From<Vec<u8>> for CoralValue {
