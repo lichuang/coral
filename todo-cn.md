@@ -139,17 +139,19 @@ pub enum LoroValue {
 - `PartialEq` 但不实现 `Eq` — f64 的 NaN 问题
 - 提供 `to_json()` / `from_json()` 与 serde_json 互转
 
-- [x] ### 1.6 Op（操作单元）
+- [x] ### 1.6 Op（操作单元 — 紧凑存储形式）
 
 ```rust
 // src/op.rs
 
+/// 紧凑形式的操作单元，存储在 Change / OpLog 中。
+/// peer 和 lamport 在 Change 级别维护，Op 只存 counter。
+/// container 使用紧凑的 ContainerIdx 而非完整的 ContainerID。
 #[derive(Debug, Clone)]
 pub struct Op {
-    pub id: ID,           // 这个操作的唯一 ID
-    pub container: ContainerID, // 目标容器
-    pub content: OpContent,     // 操作内容
-    pub lamport: Lamport,       // Lamport 时间戳（LWW 用）
+    pub counter: Counter,           // 操作计数器
+    pub container: ContainerIdx,    // 目标容器（紧凑索引）
+    pub content: OpContent,         // 操作内容（紧凑形式）
 }
 
 #[derive(Debug, Clone)]
@@ -165,7 +167,48 @@ pub enum OpContent {
 // MapOp, ListOp, TextOp, TreeOp, CounterOp
 ```
 
-**注意**：Op 是**操作意图**的描述，独立于文档运行时。每个 CRDT 状态机只需要理解自己对应的 Op 变体。
+**注意**：Op 是**紧凑存储形式**，用于 Change / OpLog 的持久化。RLE 合并（`Mergable`）在此级别进行。
+
+---
+
+- [ ] ### 1.6b RawOp（操作单元 — 完整运行时形式）
+
+> **与 Loro 对齐**。`RawOp` 是 `Op` 的运行时视图，携带完整上下文（id、lamport、container）。
+> `ContainerState::apply_local_op` 接收 `&RawOp` 而非 `&Op`，因为状态应用需要完整的因果信息（如 LWW 比较用的 lamport）。
+
+```rust
+// src/op.rs
+
+/// 完整运行时形式的操作单元。
+///
+/// `RawOp` 不是独立持久化的类型，而是从 `Change` + `Op` + Arena 动态构建的视图。
+/// 它包含 `apply_local_op` 所需的全部上下文：完整 ID、lamport、容器引用。
+#[derive(Debug, Clone)]
+pub struct RawOp {
+    pub id: ID,                     // 完整 ID（peer + counter）
+    pub lamport: Lamport,           // Lamport 时间戳（LWW 比较用）
+    pub container: ContainerIdx,    // 目标容器（紧凑索引）
+    pub content: RawOpContent,      // 操作内容（完整形式）
+}
+
+/// 完整形式的操作内容，与 `OpContent` 一一对应。
+///
+/// 对于简单类型（Counter、Map）两者内容相同；
+/// 对于复杂类型（List、Text）`RawOpContent` 可能包含额外运行时数据。
+#[derive(Debug, Clone)]
+pub enum RawOpContent {
+    Map(MapOp),
+    List(ListOp),
+    Text(TextOp),
+    Tree(TreeOp),
+    Counter(f64),
+}
+```
+
+**要点**：
+- `RawOp` 在 **Phase 4 文档运行时** 构建，但需要在 **Phase 3 ContainerState trait** 中引用
+- `Counter` 在 Loro 中位于 `FutureInnerContent::Counter(f64)`，Coral 简化为直接变体
+- `RawOpContent` 与 `OpContent` 的 Counter 对应：`OpContent::Counter(CounterOp)` ↔ `RawOpContent::Counter(f64)`
 
 - [x] ### 1.7 Change（变更组）
 
@@ -1018,29 +1061,53 @@ impl TreeState {
 /// 所有 CRDT 容器的统一接口。
 /// 实现此 trait 的对象可以被 DocState 存储和管理。
 pub trait ContainerState: Debug + Send + Sync {
-    /// 应用一个 Op（增量更新）
-    fn apply_op(&mut self, op: &Op) -> Result<()>;
+    fn container_idx(&self) -> ContainerIdx;
     
-    /// 应用一个 Diff（批量重建或同步）
-    fn apply_diff(&mut self, diff: &Diff) -> Result<()>;
+    fn is_state_empty(&self) -> bool;
     
-    /// 导出当前状态的 Diff（用于编码传输、事件输出、快照）
-    fn to_diff(&self) -> Diff;
+    /// 应用一个本地 Op（增量更新）。
+    ///
+    /// `raw_op` 携带完整运行时上下文（id、lamport、container）。
+    /// `op` 是紧凑存储形式（counter、container、content）。
+    /// 两者都由 DocState 在 apply 时从 Change + Arena 构建。
+    fn apply_local_op(&mut self, raw_op: &RawOp, op: &Op) -> Result<ApplyLocalOpReturn>;
     
-    /// 获取当前状态的值
-    fn get_value(&self) -> LoroValue;
+    /// 应用一个 Diff 并返回产生的 Diff（用于事件通知）。
+    fn apply_diff_and_convert(&mut self, diff: InternalDiff, ctx: DiffApplyContext) -> Diff;
     
-    /// 克隆自身（用于 fork / 快照）
-    fn fork(&self) -> Box<dyn ContainerState>;
+    /// 应用一个 Diff（批量重建或同步）。
+    fn apply_diff(&mut self, diff: InternalDiff, ctx: DiffApplyContext);
     
-    /// 获取容器类型
+    /// 导出当前状态的 Diff（用于编码传输、事件输出、快照）。
+    /// `doc` 弱引用用于解析嵌套容器的值。
+    fn to_diff(&mut self, doc: &Weak<CoralDocInner>) -> Diff;
+    
+    /// 获取当前状态的值。
+    fn get_value(&mut self) -> LoroValue;
+    
+    /// 获取子容器索引（用于 Tree / Map 嵌套容器）。
+    fn get_child_index(&self, id: &ContainerID) -> Option<Index>;
+    
+    /// 获取所有子容器 ID。
+    fn get_child_containers(&self) -> Vec<ContainerID>;
+    
+    /// 是否包含指定子容器。
+    fn contains_child(&self, id: &ContainerID) -> bool;
+    
+    /// 克隆自身（用于 fork / 快照）。
+    fn fork(&self, config: &Configure) -> Self;
+    
+    /// 获取容器类型。
     fn container_type(&self) -> ContainerType;
 }
 ```
 
 **要点**：
-- `apply_op` 的参数是 `&Op`（含 container / lamport / id 等完整信息），各实现提取自己关心的部分
-- `fork` 返回 `Box<dyn>` 因为不同容器类型大小不同
+- `apply_local_op` 接收 `&RawOp` + `&Op`（与 Loro 一致），`raw_op` 提供完整因果上下文，`op` 提供紧凑存储内容
+- `apply_diff_and_convert` 返回 `Diff` 用于事件系统传播变更
+- `to_diff` 接收 `&Weak<CoralDocInner>` 因为解析嵌套容器值需要 Arena
+- `fork` 需要 `&Configure` 因为某些状态（如 Tree）的 fork 行为依赖配置
+- `get_value` 用 `&mut self` 因为某些状态的值计算是惰性的（与 Loro 一致）
 
 ---
 
