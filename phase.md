@@ -233,7 +233,7 @@
 
 - [ ] **5.3 值与字符串 Arena**
   - [ ] 5.3.1 定义 `values: Vec<LoroValue>`，实现 `alloc_value(value) -> usize`
-  - [ ] 5.3.2 定义 `StrArena`（Loro 使用 `append_only_bytes::AppendOnlyBytes` 作为底层存储，维护 unicode→byte 索引以支持按 unicode 位置切片），实现 `alloc_str(str) -> StrAllocResult`
+  - [x] 5.3.2 定义 `StrArena`（Loro 使用 `append_only_bytes::AppendOnlyBytes` 作为底层存储，维护 unicode→byte 索引以支持按 unicode 位置切片），实现 `alloc_str(str) -> StrAllocResult`
   - [ ] 5.3.3 实现 `get_value(idx)` 和 `get_str(result)`
 
 - [ ] **5.4 SharedArena**
