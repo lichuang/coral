@@ -84,10 +84,10 @@
   - [ ] 1.6.1 定义 `InternalString`（可用 `Arc<str>` 或小型字符串优化版）（未实现）
   - [ ] 1.6.2 实现 `Clone`、`Debug`、`Hash`、`PartialEq`、`Eq`、`AsRef<str>`、`Deref<Target=str>`、`From<&str>`（未实现）
 
-- [ ] **1.7 错误类型**
-  - [ ] 1.7.1 使用 `thiserror` 定义 `CoralError` 枚举（未实现）
-  - [ ] 1.7.2 包含至少以下变体：`ContainerNotFound`、`InvalidPosition`、`TypeMismatch`、`MissingDependency(ID)`、`OutOfBound`、`DecodeError`、`LockError`（未实现）
-  - [ ] 1.7.3 定义类型别名 `CoralResult<T> = Result<T, CoralError>`（未实现）
+- [x] **1.7 错误类型**
+  - [x] 1.7.1 使用 `thiserror` 定义 `CoralError` 枚举
+  - [x] 1.7.2 包含至少以下变体：`ContainerNotFound`、`InvalidPosition`、`TypeMismatch`、`MissingDependency(ID)`、`OutOfBound`、`DecodeError`、`LockError`
+  - [x] 1.7.3 定义类型别名 `CoralResult<T> = Result<T, CoralError>`
 
 - [x] **1.8 Phase 1 测试**
   - [ ] 1.8.1 测试 `ID` 的创建、比较、序列化、反序列化（序列化/反序列化测试缺失）
