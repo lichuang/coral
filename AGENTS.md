@@ -4,7 +4,7 @@
 
 **Coral** is a Rust implementation of CRDTs (Conflict-free Replicated Data Types). The goal is to provide a complete, embeddable local-first data structure without relying on external runtimes (such as Yjs/Loro's WASM bindings or specific transport layers).
 
-This project is heavily inspired by [Loro](https://github.com/loro-dev/loro)'s architecture. Coral pursues a **minimal comprehensible implementation** that keeps the core algorithms while stripping away encoding compression, network sync protocols, WASM FFI, and other non-essential complexities.
+This project is a **complete re-implementation of Loro** in Rust. The goal is to achieve full structural and behavioral parity with Loro's CRDT core — including all container types, algorithms, encoding formats, and advanced features. Development proceeds in phases for manageability, but no feature is permanently excluded; every Loro capability is on the roadmap to be ported.
 
 ### Alignment with Loro
 
@@ -111,7 +111,7 @@ pub enum CoralError {
 ### 5. Avoid Premature Abstraction
 
 - **Do not** introduce complex generic parameters or macro generation for each CRDT; hand-write first, then extract commonalities
-- **Do not** introduce encoding/serialization logic in Phases 1-5; prioritize algorithmic correctness first
+- **Defer** encoding/serialization logic to later phases; prioritize algorithmic correctness first, but design interfaces so serialization can plug in seamlessly
 - **Allow** temporary `unimplemented!()` or `todo!()`, but they must be marked with phase plans
 
 ---
@@ -127,19 +127,23 @@ pub enum CoralError {
 - LWW-Register as the foundation for Map and deletion semantics
 - Algorithm choices: RGA List, Fugue Text, Movable Tree
 
-### Simplified / Stripped Designs
+### Phased Implementation Plan
 
-| Loro Feature | Coral Approach |
-|--------------|----------------|
-| Binary encoding (fast_snapshot, shallow_snapshot) | Not provided initially; reserve `Encode` trait interface |
-| JSON Schema encoding | Only provide `serde_json` export, no compact encoding |
-| KV-Store persistence | Not provided; all state is in-memory |
-| WASM FFI / JS API | Not provided |
-| Awareness (cursor/selection collaboration) | Not provided |
-| UndoManager | Not provided (can be manually implemented via OpLog + checkout) |
-| generic-btree (high-performance Rope/BTree) | List/Text initially use HashMap + linked list; optionally replace later |
-| Multi-threading (Arc<Mutex>, etc.) | Single-threaded first; introduce `loom` testing if concurrency is needed later |
-| Event subscription system (Observer/Subscription) | Simplified version: manual diff after checkout, or reserved callback interface |
+The following Loro features are not yet implemented in the current phase, but **all are on the roadmap for full replication**:
+
+| Loro Feature | Current Status | Target |
+|--------------|----------------|--------|
+| Binary encoding (fast_snapshot, shallow_snapshot) | Trait interface reserved | Full fast / shallow snapshot encoding |
+| JSON Schema encoding | serde_json export only | Compact JSON Schema with peer compression |
+| KV-Store persistence | In-memory only | Pluggable KV-store backend |
+| WASM FFI / JS API | Not started | Full wasm-bindgen API surface |
+| Awareness (cursor/selection collaboration) | Not started | Complete awareness protocol |
+| UndoManager | Not started | Full UndoManager with grouping |
+| generic-btree (high-performance Rope/BTree) | HashMap + linked list | generic-btree or equivalent |
+| Multi-threading (Arc<Mutex>, etc.) | Single-threaded | Full Arc/Mutex + loom testing |
+| Event subscription system (Observer/Subscription) | Manual diff | Full subscription / observer system |
+
+**Every design decision must keep the door open for the full Loro feature to land later with minimal refactoring.**
 
 ---
 
