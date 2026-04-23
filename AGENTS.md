@@ -129,19 +129,21 @@ pub enum CoralError {
 
 ### Phased Implementation Plan
 
-The following Loro features are not yet implemented in the current phase, but **all are on the roadmap for full replication**:
+The following Loro features are **not yet implemented** in Coral. The table below lists what is *missing*; every item must eventually be brought to parity with Loro's actual design.
 
-| Loro Feature | Current Status | Target |
-|--------------|----------------|--------|
-| Binary encoding (fast_snapshot, shallow_snapshot) | Trait interface reserved | Full fast / shallow snapshot encoding |
-| JSON Schema encoding | serde_json export only | Compact JSON Schema with peer compression |
-| KV-Store persistence | In-memory only | Pluggable KV-store backend |
-| WASM FFI / JS API | Not started | Full wasm-bindgen API surface |
-| Awareness (cursor/selection collaboration) | Not started | Complete awareness protocol |
-| UndoManager | Not started | Full UndoManager with grouping |
-| generic-btree (high-performance Rope/BTree) | HashMap + linked list | generic-btree or equivalent |
-| Multi-threading (Arc<Mutex>, etc.) | Single-threaded | Full Arc/Mutex + loom testing |
-| Event subscription system (Observer/Subscription) | Manual diff | Full subscription / observer system |
+> ⚠️ **Do not treat the left column as design guidance.** Phrases like "placeholder" or "not started" mean the feature is absent — not that it is permanently excluded.
+
+| Loro Feature | What's Missing in Coral (TODO) | Loro's Actual Design (Target) |
+|--------------|--------------------------------|-------------------------------|
+| Binary encoding (fast_snapshot, shallow_snapshot) | Only trait interface exists; encoding logic not implemented | Full fast / shallow snapshot encoding |
+| JSON Schema encoding | Only serde_json export exists; compact schema not implemented | Compact JSON Schema with peer compression |
+| KV-Store persistence | No persistence layer; everything is in-memory only | Pluggable KV-store backend |
+| WASM FFI / JS API | Not implemented | Full wasm-bindgen API surface |
+| Awareness (cursor/selection collaboration) | Not implemented | Complete awareness protocol |
+| UndoManager | Not implemented | Full UndoManager with grouping |
+| generic-btree (high-performance Rope/BTree) | Using temporary HashMap + linked list; btree not implemented | generic-btree or equivalent |
+| Multi-threading (Arc<Mutex>, etc.) | Arc/Mutex wrappers not yet added | Full Arc/Mutex + loom testing |
+| Event subscription system (Observer/Subscription) | Subscription system not implemented; only manual diff available | Full subscription / observer system |
 
 **Every design decision must keep the door open for the full Loro feature to land later with minimal refactoring.**
 
@@ -149,14 +151,14 @@ The following Loro features are not yet implemented in the current phase, but **
 
 ## Development Principles and Checklist
 
-### TODO List Maintenance
+### Phase Progress Tracking
 
-`todo.md` is the single source of truth for project progress. Every time you complete a task from `todo.md`:
+`phase.md` is the single source of truth for project progress. Every time you complete a task from `phase.md`:
 
-- [ ] **Update `todo.md`** immediately: change the checkbox from `- [ ]` to `- [x]` for the completed item.
+- [ ] **Update `phase.md`** immediately: change the checkbox from `- [ ]` to `- [x]` for the completed item.
 - [ ] Do not batch these updates. Mark the task as done in the same turn where the implementation is finished.
 - [ ] If a task is partially completed or blocked, leave it unchecked and add a `<!-- NOTE: ... -->` comment below it explaining the blocker.
-- [ ] **Use only `[ ]` and `[x]` for task status**. Do not use textual markers like "已完成", "DONE", "pending", or "in progress" anywhere in `todo.md`. Checkboxes are the single source of truth for completion state.
+- [ ] **Use only `[ ]` and `[x]` for task status**. Do not use textual markers like "已完成", "DONE", "pending", or "in progress" anywhere in `phase.md`. Checkboxes are the single source of truth for completion state.
 
 ### When Implementing a New CRDT, You Must Check
 
@@ -298,7 +300,7 @@ cargo test
 
 ### When Checks Can Be Deferred
 
-Never. Even for trivial one-line changes, run all three. The only exception is when you are explicitly told to skip them in a debug/ exploratory session — but you must run them before marking the task as done in `todo.md`.
+Never. Even for trivial one-line changes, run all three. The only exception is when you are explicitly told to skip them in a debug/ exploratory session — but you must run them before marking the task as done in `phase.md`.
 
 ---
 

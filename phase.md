@@ -225,15 +225,15 @@
   - [x] 5.1.3 实现 `ContainerIdx::get_type()` 和 `to_index()`（对应 `to_u32` 语义）
 
 - [x] **5.2 Arena 核心**
-  - [ ] 5.2.1 定义 `Arena`；**需重构**：当前字段为 `id_to_idx: FxHashMap<ContainerID, ContainerIdx>`、`idx_to_id: Vec<ContainerID>`、`parents: Vec<Option<ContainerIdx>>`。Loro 中 Arena 还包含 `depth: Vec<Option<NonZeroU16>>`，且 `parents` 使用 `FxHashMap` 而非 `Vec`
+  - [x] 5.2.1 定义 `Arena`；已重构：`parents` 改为 `FxHashMap<ContainerIdx, Option<ContainerIdx>>`，新增 `depths: Vec<Option<NonZeroU16>>`
   - [x] 5.2.2 实现 `register_container(id) -> ContainerIdx`：幂等分配（`register`）
   - [x] 5.2.3 实现 `id_to_idx(id)` 和 `idx_to_id(idx)`（`get_id`/`get_idx`）
   - [x] 5.2.4 实现 `set_parent(child, parent)` 和 `get_parent(child)`
-  - [ ] 5.2.5 实现 `get_path_to_root(child)` → `Vec<ContainerIdx>`
+  - [x] 5.2.5 实现 `get_path_to_root(child)` → `Vec<ContainerIdx>`
 
 - [ ] **5.3 值与字符串 Arena**
   - [ ] 5.3.1 定义 `values: Vec<LoroValue>`，实现 `alloc_value(value) -> usize`
-  - [ ] 5.3.2 定义字符串存储（可用 `Vec<String>` 或 `StringArena`），实现 `alloc_str(str) -> StrAllocResult`
+  - [ ] 5.3.2 定义 `StrArena`（Loro 使用 `append_only_bytes::AppendOnlyBytes` 作为底层存储，维护 unicode→byte 索引以支持按 unicode 位置切片），实现 `alloc_str(str) -> StrAllocResult`
   - [ ] 5.3.3 实现 `get_value(idx)` 和 `get_str(result)`
 
 - [ ] **5.4 SharedArena**
@@ -244,7 +244,7 @@
   - [x] 5.5.1 测试 `ContainerIdx` 的位编码/解码
   - [x] 5.5.2 测试 Arena 的 ID↔Idx 双向映射
   - [x] 5.5.3 测试父子关系设置和查询
-  - [ ] 5.5.4 测试路径计算（从子到根）
+  - [x] 5.5.4 测试路径计算（从子到根）
   - [ ] 5.5.5 测试值和字符串的分配与读取
   - [ ] 5.5.6 测试 `Arena::fork()` 的独立性
   - [x] 5.5.7 运行 fmt、clippy、test，全部通过

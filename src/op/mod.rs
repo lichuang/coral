@@ -149,12 +149,12 @@ impl Mergable for Op {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::core::arena::Arena;
+  use crate::memory::arena::Arena;
   use crate::types::{ContainerID, ContainerType};
 
   #[test]
   fn test_op_new() {
-    let mut arena = Arena::new();
+    let arena = Arena::new();
     let container = arena.register(&ContainerID::new_root("my_map", ContainerType::Map));
     let op = Op::new(7, container, OpContent::Map(MapOp));
     assert_eq!(op.counter, 7);
@@ -163,7 +163,7 @@ mod tests {
 
   #[test]
   fn test_op_id() {
-    let mut arena = Arena::new();
+    let arena = Arena::new();
     let container = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let op = Op::new(3, container, OpContent::Counter(CounterOp));
     assert_eq!(op.id(42), ID::new(42, 3));
@@ -171,7 +171,7 @@ mod tests {
 
   #[test]
   fn test_op_with_id() {
-    let mut arena = Arena::new();
+    let arena = Arena::new();
     let container = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let op = Op::new(5, container, OpContent::Counter(CounterOp));
     let op_with_id = OpWithId { peer: 99, op };
@@ -180,7 +180,7 @@ mod tests {
 
   #[test]
   fn test_op_content_variants() {
-    let mut arena = Arena::new();
+    let arena = Arena::new();
     let map_c = arena.register(&ContainerID::new_root("m", ContainerType::Map));
     let list_c = arena.register(&ContainerID::new_root("l", ContainerType::List));
     let text_c = arena.register(&ContainerID::new_root("t", ContainerType::Text));
@@ -198,7 +198,7 @@ mod tests {
 
   #[test]
   fn test_op_has_length() {
-    let mut arena = Arena::new();
+    let arena = Arena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let op = Op::new(0, c, OpContent::Counter(CounterOp));
     assert_eq!(op.content_len(), 1);
@@ -207,7 +207,7 @@ mod tests {
 
   #[test]
   fn test_op_sliceable_whole() {
-    let mut arena = Arena::new();
+    let arena = Arena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let op = Op::new(5, c, OpContent::Counter(CounterOp));
     let sliced = op.slice(0, 1);
@@ -218,7 +218,7 @@ mod tests {
   #[test]
   #[should_panic(expected = "Op::slice out of bounds")]
   fn test_op_sliceable_empty_range_panics() {
-    let mut arena = Arena::new();
+    let arena = Arena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let op = Op::new(0, c, OpContent::Counter(CounterOp));
     let _ = op.slice(0, 0); // empty range, should panic on assert in Op::slice
@@ -233,7 +233,7 @@ mod tests {
 
   #[test]
   fn test_op_mergable_same_container_contiguous() {
-    let mut arena = Arena::new();
+    let arena = Arena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let a = Op::new(0, c, OpContent::Counter(CounterOp));
     let b = Op::new(1, c, OpContent::Counter(CounterOp));
@@ -243,7 +243,7 @@ mod tests {
 
   #[test]
   fn test_op_not_mergable_different_container() {
-    let mut arena = Arena::new();
+    let arena = Arena::new();
     let c1 = arena.register(&ContainerID::new_root("a", ContainerType::Counter));
     let c2 = arena.register(&ContainerID::new_root("b", ContainerType::Counter));
     let a = Op::new(0, c1, OpContent::Counter(CounterOp));
@@ -253,7 +253,7 @@ mod tests {
 
   #[test]
   fn test_op_not_mergable_non_contiguous() {
-    let mut arena = Arena::new();
+    let arena = Arena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let a = Op::new(0, c, OpContent::Counter(CounterOp));
     let b = Op::new(2, c, OpContent::Counter(CounterOp));
@@ -262,7 +262,7 @@ mod tests {
 
   #[test]
   fn test_op_not_mergable_different_variant() {
-    let mut arena = Arena::new();
+    let arena = Arena::new();
     let c1 = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let c2 = arena.register(&ContainerID::new_root("m", ContainerType::Map));
     let a = Op::new(0, c1, OpContent::Counter(CounterOp));
