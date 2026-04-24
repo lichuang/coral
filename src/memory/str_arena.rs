@@ -20,6 +20,20 @@ use std::ops::{Bound, RangeBounds};
 /// value is more memory-efficient.  128 bytes is the same value used by Loro.
 const INDEX_INTERVAL: u32 = 128;
 
+/// Handle returned by [`StrArena::alloc`] that locates an allocated string
+/// without re-parsing the buffer.
+///
+/// `start_byte` is the absolute byte offset in the arena and `unicode_len` is
+/// the number of unicode scalar values.  Both are stable for the lifetime of
+/// the arena because the buffer is append-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StrAllocResult {
+  /// Byte offset where the string begins in the arena buffer.
+  pub start_byte: usize,
+  /// Number of unicode scalar values in the string.
+  pub unicode_len: usize,
+}
+
 /// Append-only string storage with O(log n) unicode slicing.
 ///
 /// All strings are concatenated into a single [`AppendOnlyBytes`] buffer.
@@ -92,27 +106,39 @@ impl StrArena {
   /// as a single chunk.  The sampling is **best-effort** — it guarantees that
   /// consecutive samples are at least `INDEX_INTERVAL` bytes apart, but does
   /// not force a sample on every call.
-  pub fn alloc(&mut self, input: &str) {
+  pub fn alloc(&mut self, input: &str) -> StrAllocResult {
+    let start_byte = self.len.bytes as usize;
+    let unicode_len = input.chars().count();
+
     let mut utf16 = 0;
-    let mut unicode_len = 0;
+    let mut chunk_unicode_len = 0;
     let mut last_save_index = 0;
     // Walk the input char-by-char, accumulating counts.  Whenever the
     // accumulated byte length crosses INDEX_INTERVAL, flush the chunk.
     for (byte_index, c) in input.char_indices() {
       let byte_index = byte_index + c.len_utf8();
       utf16 += c.len_utf16() as u32;
-      unicode_len += 1;
+      chunk_unicode_len += 1;
       if byte_index - last_save_index > INDEX_INTERVAL as usize {
-        self._alloc(&input[last_save_index..byte_index], utf16, unicode_len);
+        self._alloc(
+          &input[last_save_index..byte_index],
+          utf16,
+          chunk_unicode_len,
+        );
         last_save_index = byte_index;
         utf16 = 0;
-        unicode_len = 0;
+        chunk_unicode_len = 0;
       }
     }
 
     // Flush any trailing bytes that did not cross the interval threshold.
     if last_save_index != input.len() {
-      self._alloc(&input[last_save_index..], utf16, unicode_len);
+      self._alloc(&input[last_save_index..], utf16, chunk_unicode_len);
+    }
+
+    StrAllocResult {
+      start_byte,
+      unicode_len,
     }
   }
 
@@ -181,6 +207,24 @@ impl StrArena {
   #[inline]
   pub fn slice_bytes(&self, range: impl RangeBounds<usize>) -> BytesSlice {
     self.bytes.slice(range)
+  }
+
+  /// Retrieve the string described by a previous [`StrAllocResult`].
+  ///
+  /// # Panics
+  ///
+  /// Panics if `result.start_byte` is out of bounds.  This should never happen
+  /// when the result was produced by the same arena instance.
+  pub fn get_str(&self, result: &StrAllocResult) -> &str {
+    let bytes = &self.bytes[result.start_byte..];
+    // SAFETY: the arena only ever stores valid UTF-8.
+    let s = unsafe { std::str::from_utf8_unchecked(bytes) };
+    match s.char_indices().nth(result.unicode_len) {
+      Some((byte_idx, _)) => unsafe {
+        std::str::from_utf8_unchecked(&self.bytes[result.start_byte..result.start_byte + byte_idx])
+      },
+      None => s,
+    }
   }
 
   /// Convert a unicode-code-point range into a UTF-8 byte range.

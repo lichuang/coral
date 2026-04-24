@@ -8,7 +8,8 @@
 //! aligned with Loro's `SharedArena` design.
 
 use crate::core::container::ContainerIdx;
-use crate::types::ContainerID;
+use crate::memory::str_arena::{StrAllocResult, StrArena};
+use crate::types::{ContainerID, CoralValue};
 use rustc_hash::FxHashMap;
 use std::num::NonZeroU16;
 use std::sync::Mutex;
@@ -23,6 +24,11 @@ pub struct Arena {
   idx_to_id: Mutex<Vec<ContainerID>>,
   parents: Mutex<FxHashMap<ContainerIdx, Option<ContainerIdx>>>,
   depths: Mutex<Vec<Option<NonZeroU16>>>,
+  /// Append-only value storage.  Each [`CoralValue`] is pushed in order and
+  /// never removed; indices are stable for the lifetime of the arena.
+  values: Mutex<Vec<CoralValue>>,
+  /// Append-only string storage with unicode indexing.
+  str_arena: Mutex<StrArena>,
 }
 
 impl Arena {
@@ -129,6 +135,39 @@ impl Arena {
     }
     path
   }
+
+  /// Append a [`CoralValue`] to the value arena and return its stable index.
+  pub fn alloc_value(&self, value: CoralValue) -> usize {
+    let mut values = self.values.lock().unwrap();
+    let idx = values.len();
+    values.push(value);
+    idx
+  }
+
+  /// Retrieve a cloned [`CoralValue`] by its arena index.
+  pub fn get_value(&self, idx: usize) -> Option<CoralValue> {
+    let values = self.values.lock().unwrap();
+    values.get(idx).cloned()
+  }
+
+  /// Append a string to the string arena and return a handle describing it.
+  pub fn alloc_str(&self, s: &str) -> StrAllocResult {
+    let mut str_arena = self.str_arena.lock().unwrap();
+    str_arena.alloc(s)
+  }
+
+  /// Retrieve the string described by a previous [`StrAllocResult`].
+  ///
+  /// Returns `None` when the result was produced by a different arena instance
+  /// or when it is otherwise stale.
+  pub fn get_str(&self, result: &StrAllocResult) -> Option<String> {
+    let str_arena = self.str_arena.lock().unwrap();
+    // Sanity check: the allocation must fit within the current buffer.
+    if result.start_byte > str_arena.len_bytes() {
+      return None;
+    }
+    Some(str_arena.get_str(result).to_string())
+  }
 }
 
 #[cfg(test)]
@@ -222,5 +261,39 @@ mod tests {
     arena.set_parent(child, None);
     assert_eq!(arena.get_parent(child), None);
     assert_eq!(arena.get_depth(child), None);
+  }
+
+  #[test]
+  fn test_arena_alloc_value_and_get() {
+    let arena = Arena::new();
+    let idx0 = arena.alloc_value(CoralValue::from("hello"));
+    let idx1 = arena.alloc_value(CoralValue::from(42i32));
+    let idx2 = arena.alloc_value(CoralValue::from(true));
+
+    assert_eq!(idx0, 0);
+    assert_eq!(idx1, 1);
+    assert_eq!(idx2, 2);
+
+    assert_eq!(arena.get_value(idx0), Some(CoralValue::from("hello")));
+    assert_eq!(arena.get_value(idx1), Some(CoralValue::from(42i32)));
+    assert_eq!(arena.get_value(idx2), Some(CoralValue::from(true)));
+    assert_eq!(arena.get_value(99), None);
+  }
+
+  #[test]
+  fn test_arena_alloc_str_and_get() {
+    let arena = Arena::new();
+    let r1 = arena.alloc_str("Hello");
+    let r2 = arena.alloc_str("World");
+    let r3 = arena.alloc_str("你好");
+
+    assert_eq!(arena.get_str(&r1), Some("Hello".to_string()));
+    assert_eq!(arena.get_str(&r2), Some("World".to_string()));
+    assert_eq!(arena.get_str(&r3), Some("你好".to_string()));
+
+    // Unicode length is tracked correctly.
+    assert_eq!(r1.unicode_len, 5);
+    assert_eq!(r2.unicode_len, 5);
+    assert_eq!(r3.unicode_len, 2);
   }
 }

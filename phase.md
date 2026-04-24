@@ -231,10 +231,10 @@
   - [x] 5.2.4 实现 `set_parent(child, parent)` 和 `get_parent(child)`
   - [x] 5.2.5 实现 `get_path_to_root(child)` → `Vec<ContainerIdx>`
 
-- [ ] **5.3 值与字符串 Arena**
-  - [ ] 5.3.1 定义 `values: Vec<LoroValue>`，实现 `alloc_value(value) -> usize`
+- [x] **5.3 值与字符串 Arena**
+  - [x] 5.3.1 定义 `values: Vec<LoroValue>`，实现 `alloc_value(value) -> usize`
   - [x] 5.3.2 定义 `StrArena`（Loro 使用 `append_only_bytes::AppendOnlyBytes` 作为底层存储，维护 unicode→byte 索引以支持按 unicode 位置切片），实现 `alloc_str(str) -> StrAllocResult`
-  - [ ] 5.3.3 实现 `get_value(idx)` 和 `get_str(result)`
+  - [x] 5.3.3 实现 `get_value(idx)` 和 `get_str(result)`
 
 - [ ] **5.4 SharedArena**
   - [ ] 5.4.1 定义 `SharedArena(Arc<Mutex<Arena>>)` 或内部可变性包装
@@ -245,7 +245,7 @@
   - [x] 5.5.2 测试 Arena 的 ID↔Idx 双向映射
   - [x] 5.5.3 测试父子关系设置和查询
   - [x] 5.5.4 测试路径计算（从子到根）
-  - [ ] 5.5.5 测试值和字符串的分配与读取
+  - [x] 5.5.5 测试值和字符串的分配与读取
   - [ ] 5.5.6 测试 `Arena::fork()` 的独立性
   - [x] 5.5.7 运行 fmt、clippy、test，全部通过
 
