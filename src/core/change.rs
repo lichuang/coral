@@ -300,7 +300,7 @@ impl<O: Mergable + HasLength + HasIndex<Int = Counter> + Sliceable + Debug> Slic
 mod tests {
   use super::*;
   use crate::memory::arena::InnerArena;
-  use crate::op::{CounterOp, Op, OpContent};
+  use crate::op::{Op, OpContent};
   use crate::types::{ContainerID, ContainerType};
 
   fn ops_from_vec(ops: Vec<Op>) -> RleVec<[Op; 1]> {
@@ -313,7 +313,7 @@ mod tests {
     let id = ID::new(1, 0);
     let deps = Frontiers::from_id(ID::new(0, 0));
     let container = arena.register(&ContainerID::new_root("counter", ContainerType::Counter));
-    let op = Op::new(0, container, OpContent::Counter(CounterOp));
+    let op = Op::new(0, container, OpContent::Counter(1.0));
     let change = Change::new(
       ops_from_vec(vec![op]),
       deps.clone(),
@@ -347,7 +347,7 @@ mod tests {
   fn test_change_has_length_single_op() {
     let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let ops = vec![Op::new(0, c, OpContent::Counter(CounterOp))];
+    let ops = vec![Op::new(0, c, OpContent::Counter(1.0))];
     let change = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
     assert_eq!(change.content_len(), 1);
     assert_eq!(change.atom_len(), 1);
@@ -358,9 +358,9 @@ mod tests {
     let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
-      Op::new(0, c, OpContent::Counter(CounterOp)),
-      Op::new(1, c, OpContent::Counter(CounterOp)),
-      Op::new(2, c, OpContent::Counter(CounterOp)),
+      Op::new(0, c, OpContent::Counter(1.0)),
+      Op::new(1, c, OpContent::Counter(1.0)),
+      Op::new(2, c, OpContent::Counter(1.0)),
     ];
     let change = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
     assert_eq!(change.content_len(), 3);
@@ -382,8 +382,8 @@ mod tests {
     let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
-      Op::new(10, c, OpContent::Counter(CounterOp)),
-      Op::new(11, c, OpContent::Counter(CounterOp)),
+      Op::new(10, c, OpContent::Counter(1.0)),
+      Op::new(11, c, OpContent::Counter(1.0)),
     ];
     // id.counter is 10, but ops start at counter 10 as well
     let change = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 10), 5, 0);
@@ -396,9 +396,9 @@ mod tests {
     let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
-      Op::new(0, c, OpContent::Counter(CounterOp)),
-      Op::new(1, c, OpContent::Counter(CounterOp)),
-      Op::new(2, c, OpContent::Counter(CounterOp)),
+      Op::new(0, c, OpContent::Counter(1.0)),
+      Op::new(1, c, OpContent::Counter(1.0)),
+      Op::new(2, c, OpContent::Counter(1.0)),
     ];
     let change = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
 
@@ -415,9 +415,9 @@ mod tests {
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let deps = Frontiers::from_id(ID::new(0, 0));
     let ops = vec![
-      Op::new(0, c, OpContent::Counter(CounterOp)),
-      Op::new(1, c, OpContent::Counter(CounterOp)),
-      Op::new(2, c, OpContent::Counter(CounterOp)),
+      Op::new(0, c, OpContent::Counter(1.0)),
+      Op::new(1, c, OpContent::Counter(1.0)),
+      Op::new(2, c, OpContent::Counter(1.0)),
     ];
     let change = Change::new(ops_from_vec(ops), deps.clone(), ID::new(1, 0), 5, 1_000);
 
@@ -437,9 +437,9 @@ mod tests {
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let deps = Frontiers::from_id(ID::new(0, 0));
     let ops = vec![
-      Op::new(0, c, OpContent::Counter(CounterOp)),
-      Op::new(1, c, OpContent::Counter(CounterOp)),
-      Op::new(2, c, OpContent::Counter(CounterOp)),
+      Op::new(0, c, OpContent::Counter(1.0)),
+      Op::new(1, c, OpContent::Counter(1.0)),
+      Op::new(2, c, OpContent::Counter(1.0)),
     ];
     let change = Change::new(ops_from_vec(ops), deps.clone(), ID::new(1, 0), 5, 1_000);
 
@@ -458,8 +458,8 @@ mod tests {
     let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
-      Op::new(0, c, OpContent::Counter(CounterOp)),
-      Op::new(1, c, OpContent::Counter(CounterOp)),
+      Op::new(0, c, OpContent::Counter(1.0)),
+      Op::new(1, c, OpContent::Counter(1.0)),
     ];
     let change = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
 
@@ -477,9 +477,9 @@ mod tests {
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let deps = Frontiers::from_id(ID::new(0, 0));
     let ops = vec![
-      Op::new(0, c, OpContent::Counter(CounterOp)),
-      Op::new(1, c, OpContent::Counter(CounterOp)),
-      Op::new(2, c, OpContent::Counter(CounterOp)),
+      Op::new(0, c, OpContent::Counter(1.0)),
+      Op::new(1, c, OpContent::Counter(1.0)),
+      Op::new(2, c, OpContent::Counter(1.0)),
     ];
     let change = Change::new(ops_from_vec(ops), deps.clone(), ID::new(1, 0), 5, 1_000);
 
@@ -498,9 +498,9 @@ mod tests {
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let deps = Frontiers::from_id(ID::new(0, 0));
     let ops = vec![
-      Op::new(0, c, OpContent::Counter(CounterOp)),
-      Op::new(1, c, OpContent::Counter(CounterOp)),
-      Op::new(2, c, OpContent::Counter(CounterOp)),
+      Op::new(0, c, OpContent::Counter(1.0)),
+      Op::new(1, c, OpContent::Counter(1.0)),
+      Op::new(2, c, OpContent::Counter(1.0)),
     ];
     let change = Change::new(ops_from_vec(ops), deps.clone(), ID::new(1, 0), 5, 1_000);
 
@@ -520,8 +520,8 @@ mod tests {
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let deps = Frontiers::from_id(ID::new(0, 0));
     let ops = vec![
-      Op::new(0, c, OpContent::Counter(CounterOp)),
-      Op::new(1, c, OpContent::Counter(CounterOp)),
+      Op::new(0, c, OpContent::Counter(1.0)),
+      Op::new(1, c, OpContent::Counter(1.0)),
     ];
     let change = Change::new(ops_from_vec(ops), deps.clone(), ID::new(1, 0), 5, 1_000);
 
@@ -541,10 +541,10 @@ mod tests {
     let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
-      Op::new(0, c, OpContent::Counter(CounterOp)),
-      Op::new(1, c, OpContent::Counter(CounterOp)),
-      Op::new(2, c, OpContent::Counter(CounterOp)),
-      Op::new(3, c, OpContent::Counter(CounterOp)),
+      Op::new(0, c, OpContent::Counter(1.0)),
+      Op::new(1, c, OpContent::Counter(1.0)),
+      Op::new(2, c, OpContent::Counter(1.0)),
+      Op::new(3, c, OpContent::Counter(1.0)),
     ];
     let change = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
 
@@ -563,7 +563,7 @@ mod tests {
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let mut ops = Vec::new();
     for i in 0..10 {
-      ops.push(Op::new(i, c, OpContent::Counter(CounterOp)));
+      ops.push(Op::new(i, c, OpContent::Counter(1.0)));
     }
     let change = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
     assert_eq!(change.ops().len(), 10); // placeholder ops don't merge
@@ -591,8 +591,8 @@ mod tests {
     let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
-      Op::new(0, c, OpContent::Counter(CounterOp)),
-      Op::new(1, c, OpContent::Counter(CounterOp)),
+      Op::new(0, c, OpContent::Counter(1.0)),
+      Op::new(1, c, OpContent::Counter(1.0)),
     ];
     let change = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
     let _ = change.slice(1, 1);
@@ -613,7 +613,7 @@ mod tests {
 
     let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let ops = vec![Op::new(0, c, OpContent::Counter(CounterOp))];
+    let ops = vec![Op::new(0, c, OpContent::Counter(1.0))];
     let mut a = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
     let b = Change::new(RleVec::new(), Frontiers::new(), ID::new(1, 1), 6, 0);
     a.merge(&b, &());
@@ -625,7 +625,7 @@ mod tests {
   fn test_change_slice_out_of_bounds() {
     let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let ops = vec![Op::new(0, c, OpContent::Counter(CounterOp))];
+    let ops = vec![Op::new(0, c, OpContent::Counter(1.0))];
     let change = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
     let _ = change.slice(0, 2);
   }

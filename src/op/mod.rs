@@ -1,8 +1,8 @@
 //! Operation unit — the smallest change that can be applied to a container.
 //!
 //! An [`Op`] targets a single container and carries a payload ([`OpContent`])
-//! describing what to do.  The concrete operation types (`MapOp`, `ListOp`, …)
-//! are defined in the [`content`] sub-module and re-exported here.
+//! describing what to do.  The concrete operation types (`MapSet`, `InnerListOp`, …)
+//! are defined in sub-modules and re-exported here.
 //!
 //! # Design note
 //!
@@ -13,11 +13,24 @@
 
 mod content;
 
-pub use content::*;
+pub use crate::container::list::{DeleteSpan, DeleteSpanWithId, InnerListOp, ListOp, ListSlice};
+pub use crate::container::map::MapSet;
+pub use crate::container::tree::{FractionalIndex as TreeFractionalIndex, TreeID, TreeOp};
+pub use content::{OpContent, RawOpContent};
 
 use crate::core::container::ContainerIdx;
 use crate::rle::{HasIndex, HasLength, Mergable, Sliceable};
 use crate::types::{Counter, ID, PeerID};
+
+/// A range of values in the value arena.
+///
+/// Used by [`InnerListOp::Insert`](crate::container::list::InnerListOp::Insert)
+/// to reference contiguous values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SliceRange {
+  pub start: usize,
+  pub end: usize,
+}
 
 /// A single atomic operation.
 ///
@@ -91,11 +104,9 @@ impl OpWithId {
   }
 
   /// Returns the counter span covered by this op.
-  ///
-  /// For now each placeholder op has atom length 1.
   pub fn id_span(&self) -> crate::version::IdSpan {
     let start = self.op.counter;
-    let end = start + 1;
+    let end = start + self.op.atom_len() as i32;
     crate::version::IdSpan::new(self.peer, start, end)
   }
 }
@@ -151,12 +162,20 @@ mod tests {
   use super::*;
   use crate::memory::arena::InnerArena;
   use crate::types::{ContainerID, ContainerType};
+  use std::sync::Arc;
 
   #[test]
   fn test_op_new() {
     let arena = InnerArena::new();
     let container = arena.register(&ContainerID::new_root("my_map", ContainerType::Map));
-    let op = Op::new(7, container, OpContent::Map(MapOp));
+    let op = Op::new(
+      7,
+      container,
+      OpContent::Map(MapSet {
+        key: "k".into(),
+        value: None,
+      }),
+    );
     assert_eq!(op.counter, 7);
     assert_eq!(op.container, container);
   }
@@ -164,16 +183,30 @@ mod tests {
   #[test]
   fn test_op_id() {
     let arena = InnerArena::new();
-    let container = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let op = Op::new(3, container, OpContent::Counter(CounterOp));
+    let container = arena.register(&ContainerID::new_root("c", ContainerType::List));
+    let op = Op::new(
+      3,
+      container,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 1 },
+      }),
+    );
     assert_eq!(op.id(42), ID::new(42, 3));
   }
 
   #[test]
   fn test_op_with_id() {
     let arena = InnerArena::new();
-    let container = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let op = Op::new(5, container, OpContent::Counter(CounterOp));
+    let container = arena.register(&ContainerID::new_root("c", ContainerType::List));
+    let op = Op::new(
+      5,
+      container,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 1 },
+      }),
+    );
     let op_with_id = OpWithId { peer: 99, op };
     assert_eq!(op_with_id.id(), ID::new(99, 5));
   }
@@ -183,15 +216,31 @@ mod tests {
     let arena = InnerArena::new();
     let map_c = arena.register(&ContainerID::new_root("m", ContainerType::Map));
     let list_c = arena.register(&ContainerID::new_root("l", ContainerType::List));
-    let text_c = arena.register(&ContainerID::new_root("t", ContainerType::Text));
     let tree_c = arena.register(&ContainerID::new_root("tr", ContainerType::Tree));
-    let counter_c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
 
-    let _ = Op::new(0, map_c, OpContent::Map(MapOp));
-    let _ = Op::new(0, list_c, OpContent::List(ListOp));
-    let _ = Op::new(0, text_c, OpContent::Text(TextOp));
-    let _ = Op::new(0, tree_c, OpContent::Tree(TreeOp));
-    let _ = Op::new(0, counter_c, OpContent::Counter(CounterOp));
+    let _ = Op::new(
+      0,
+      map_c,
+      OpContent::Map(MapSet {
+        key: "k".into(),
+        value: None,
+      }),
+    );
+    let _ = Op::new(
+      0,
+      list_c,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 1 },
+      }),
+    );
+    let _ = Op::new(
+      0,
+      tree_c,
+      OpContent::Tree(Arc::new(TreeOp::Delete {
+        target: ID::new(0, 0),
+      })),
+    );
   }
 
   // ── RLE traits ───────────────────────────────────────────────────
@@ -199,18 +248,32 @@ mod tests {
   #[test]
   fn test_op_has_length() {
     let arena = InnerArena::new();
-    let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let op = Op::new(0, c, OpContent::Counter(CounterOp));
-    assert_eq!(op.content_len(), 1);
-    assert_eq!(op.atom_len(), 1);
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::List));
+    let op = Op::new(
+      0,
+      c,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 3 },
+      }),
+    );
+    assert_eq!(op.content_len(), 3);
+    assert_eq!(op.atom_len(), 3);
   }
 
   #[test]
   fn test_op_sliceable_whole() {
     let arena = InnerArena::new();
-    let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let op = Op::new(5, c, OpContent::Counter(CounterOp));
-    let sliced = op.slice(0, 1);
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::List));
+    let op = Op::new(
+      5,
+      c,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 2 },
+      }),
+    );
+    let sliced = op.slice(0, 2);
     assert_eq!(sliced.counter, 5);
     assert_eq!(sliced.container, c);
   }
@@ -219,54 +282,119 @@ mod tests {
   #[should_panic(expected = "Op::slice out of bounds")]
   fn test_op_sliceable_empty_range_panics() {
     let arena = InnerArena::new();
-    let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let op = Op::new(0, c, OpContent::Counter(CounterOp));
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::List));
+    let op = Op::new(
+      0,
+      c,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 1 },
+      }),
+    );
     let _ = op.slice(0, 0); // empty range, should panic on assert in Op::slice
   }
 
   #[test]
-  #[should_panic(expected = "OpContent is atomic")]
+  #[should_panic(expected = "OpContent::slice: Map/Tree/Counter are atomic")]
   fn test_op_content_sliceable_panics() {
-    let content = OpContent::Counter(CounterOp);
+    let content = OpContent::Map(MapSet {
+      key: "k".into(),
+      value: None,
+    });
     let _ = content.slice(0, 0); // empty range on atomic content
   }
 
   #[test]
   fn test_op_mergable_same_container_contiguous() {
     let arena = InnerArena::new();
-    let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let a = Op::new(0, c, OpContent::Counter(CounterOp));
-    let b = Op::new(1, c, OpContent::Counter(CounterOp));
-    // Placeholder content is not mergable (default false), so Op::is_mergable returns false.
-    assert!(!a.is_mergable(&b, &()));
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::List));
+    let a = Op::new(
+      0,
+      c,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 2 },
+      }),
+    );
+    let b = Op::new(
+      2,
+      c,
+      OpContent::List(InnerListOp::Insert {
+        pos: 2,
+        slice: SliceRange { start: 2, end: 4 },
+      }),
+    );
+    assert!(a.is_mergable(&b, &()));
   }
 
   #[test]
   fn test_op_not_mergable_different_container() {
     let arena = InnerArena::new();
-    let c1 = arena.register(&ContainerID::new_root("a", ContainerType::Counter));
-    let c2 = arena.register(&ContainerID::new_root("b", ContainerType::Counter));
-    let a = Op::new(0, c1, OpContent::Counter(CounterOp));
-    let b = Op::new(1, c2, OpContent::Counter(CounterOp));
+    let c1 = arena.register(&ContainerID::new_root("a", ContainerType::List));
+    let c2 = arena.register(&ContainerID::new_root("b", ContainerType::List));
+    let a = Op::new(
+      0,
+      c1,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 1 },
+      }),
+    );
+    let b = Op::new(
+      1,
+      c2,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 1 },
+      }),
+    );
     assert!(!a.is_mergable(&b, &()));
   }
 
   #[test]
   fn test_op_not_mergable_non_contiguous() {
     let arena = InnerArena::new();
-    let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let a = Op::new(0, c, OpContent::Counter(CounterOp));
-    let b = Op::new(2, c, OpContent::Counter(CounterOp));
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::List));
+    let a = Op::new(
+      0,
+      c,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 1 },
+      }),
+    );
+    let b = Op::new(
+      2,
+      c,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 1 },
+      }),
+    );
     assert!(!a.is_mergable(&b, &()));
   }
 
   #[test]
   fn test_op_not_mergable_different_variant() {
     let arena = InnerArena::new();
-    let c1 = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
+    let c1 = arena.register(&ContainerID::new_root("c", ContainerType::List));
     let c2 = arena.register(&ContainerID::new_root("m", ContainerType::Map));
-    let a = Op::new(0, c1, OpContent::Counter(CounterOp));
-    let b = Op::new(1, c2, OpContent::Map(MapOp));
+    let a = Op::new(
+      0,
+      c1,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 1 },
+      }),
+    );
+    let b = Op::new(
+      1,
+      c2,
+      OpContent::Map(MapSet {
+        key: "k".into(),
+        value: None,
+      }),
+    );
     assert!(!a.is_mergable(&b, &()));
   }
 }

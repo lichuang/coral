@@ -20,16 +20,10 @@ impl ContainerIdx {
 
   /// Creates a new `ContainerIdx` from an arena index and container type.
   ///
-  /// The type is encoded in the top 5 bits.  Known types occupy 0..=5;
-  /// unknown types set bit 4 (0b10000) and store the low 4 bits of the
-  /// raw byte.  This means only `Unknown(0)`..=`Unknown(15)` can be
-  /// represented — larger values are silently truncated.
+  /// The type is encoded in the top 5 bits.  Known types occupy 0..=5.
   #[inline]
   pub fn from_index_and_type(index: u32, container_type: ContainerType) -> Self {
-    let type_bits = match container_type {
-      ContainerType::Unknown(k) => 0b10000 | (k & 0b1111),
-      _ => container_type.to_u8() & 0b11111,
-    };
+    let type_bits = container_type.to_u8() & 0b11111;
     Self(((type_bits as u32) << 27) | (index & Self::INDEX_MASK))
   }
 
@@ -37,23 +31,13 @@ impl ContainerIdx {
   #[inline]
   pub fn get_type(self) -> ContainerType {
     let type_value = (self.0 & Self::TYPE_MASK) >> 27;
-    if self.is_unknown() {
-      ContainerType::Unknown((type_value & 0b1111) as u8)
-    } else {
-      ContainerType::try_from_u8(type_value as u8).expect("invalid container type in ContainerIdx")
-    }
+    ContainerType::try_from_u8(type_value as u8).expect("invalid container type in ContainerIdx")
   }
 
   /// Returns the arena table index.
   #[inline]
   pub fn to_index(self) -> u32 {
     self.0 & Self::INDEX_MASK
-  }
-
-  /// Returns `true` if the encoded type is [`ContainerType::Unknown`].
-  #[inline]
-  pub fn is_unknown(self) -> bool {
-    self.0 >> 31 == 1
   }
 }
 
@@ -78,15 +62,6 @@ mod tests {
     let idx = ContainerIdx::from_index_and_type(42, ContainerType::Map);
     assert_eq!(idx.to_index(), 42);
     assert_eq!(idx.get_type(), ContainerType::Map);
-  }
-
-  #[test]
-  fn test_container_idx_unknown_roundtrip() {
-    // Unknown(255) must not overflow; only the low 4 bits are kept.
-    let idx = ContainerIdx::from_index_and_type(7, ContainerType::Unknown(255));
-    assert!(idx.is_unknown());
-    assert_eq!(idx.to_index(), 7);
-    assert_eq!(idx.get_type(), ContainerType::Unknown(15));
   }
 
   #[test]

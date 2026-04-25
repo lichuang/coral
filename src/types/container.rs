@@ -38,9 +38,6 @@ pub enum ContainerType {
 
   /// A distributed counter supporting positive and negative increments.
   Counter = 5,
-
-  /// An unknown container type, used for forward compatibility.
-  Unknown(u8),
 }
 
 impl ContainerType {
@@ -64,14 +61,12 @@ impl ContainerType {
       Self::Tree => 3,
       Self::MovableList => 4,
       Self::Counter => 5,
-      Self::Unknown(k) => k,
     }
   }
 
   /// Parses a `ContainerType` from its single-byte discriminant.
   ///
-  /// Returns `Unknown(v)` for unrecognized bytes rather than `None`,
-  /// enabling forward compatibility with future container types.
+  /// Returns `None` for unrecognized bytes.
   #[inline]
   pub const fn try_from_u8(v: u8) -> Option<Self> {
     match v {
@@ -81,7 +76,7 @@ impl ContainerType {
       3 => Some(Self::Tree),
       4 => Some(Self::MovableList),
       5 => Some(Self::Counter),
-      x => Some(Self::Unknown(x)),
+      _ => None,
     }
   }
 }
@@ -95,7 +90,6 @@ impl std::fmt::Display for ContainerType {
       ContainerType::Tree => write!(f, "Tree"),
       ContainerType::MovableList => write!(f, "MovableList"),
       ContainerType::Counter => write!(f, "Counter"),
-      ContainerType::Unknown(k) => write!(f, "Unknown({k})"),
     }
   }
 }
@@ -265,18 +259,6 @@ mod tests {
       let parsed = ContainerType::try_from_u8(byte).unwrap();
       assert_eq!(ty, parsed, "roundtrip failed for {:?}", ty);
     }
-  }
-
-  #[test]
-  fn test_container_type_unknown_byte() {
-    assert_eq!(
-      ContainerType::try_from_u8(6),
-      Some(ContainerType::Unknown(6))
-    );
-    assert_eq!(
-      ContainerType::try_from_u8(255),
-      Some(ContainerType::Unknown(255))
-    );
   }
 
   #[test]

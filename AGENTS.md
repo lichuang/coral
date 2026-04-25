@@ -127,6 +127,15 @@ pub enum CoralError {
 - LWW-Register as the foundation for Map and deletion semantics
 - Algorithm choices: RGA List, Fugue Text, Movable Tree
 
+### Intentional Divergences from Loro
+
+Some Loro design choices are deliberately **not** preserved in Coral because they add complexity without benefit for a full re-implementation:
+
+| Loro Design | Coral Approach | Rationale |
+|-------------|----------------|-----------|
+| `FutureInnerContent` enum (`Counter` + `Unknown`) | `Counter(f64)` is a first-class variant of `OpContent` | Coral controls all source code; there is no need for a forward-compatible catch-all. New container types are added directly to `OpContent` / `RawOpContent` rather than shoe-horned into a `Future` wrapper. |
+| `ContainerType::Unknown(u8)` | `ContainerType` only contains known types; `try_from_u8` returns `None` for unrecognized bytes | Same rationale — Coral is a full re-implementation, not a client that needs to gracefully ignore unknown container types from a newer Loro version. |
+
 ### Phased Implementation Plan
 
 The following Loro features are **not yet implemented** in Coral. The table below lists what is *missing*; every item must eventually be brought to parity with Loro's actual design.
@@ -159,6 +168,7 @@ The following Loro features are **not yet implemented** in Coral. The table belo
 - [ ] Do not batch these updates. Mark the task as done in the same turn where the implementation is finished.
 - [ ] If a task is partially completed or blocked, leave it unchecked and add a `<!-- NOTE: ... -->` comment below it explaining the blocker.
 - [ ] **Use only `[ ]` and `[x]` for task status**. Do not use textual markers like "已完成", "DONE", "pending", or "in progress" anywhere in `phase.md`. Checkboxes are the single source of truth for completion state.
+- [ ] **Update the statistics table at the end of `phase.md`** whenever a phase's completion state changes significantly. Count all checkbox lines (`- [x]` and `- [ ]`) in the phase, then update the "已完成 / 未完成 / 完成率" columns and the "合计" row accordingly.
 
 ### When Implementing a New CRDT, You Must Check
 

@@ -4,7 +4,7 @@
 //! [`Counter`](super::primitives::Counter) to form a globally unique identifier
 //! for every operation in the distributed system.
 
-use super::primitives::{Counter, PeerID};
+use super::primitives::{Counter, Lamport, PeerID};
 use std::cmp::Ordering;
 
 /// Globally unique identifier for a single operation.
@@ -64,6 +64,43 @@ impl Ord for ID {
     match self.peer.cmp(&other.peer) {
       Ordering::Equal => self.counter.cmp(&other.counter),
       ord => ord,
+    }
+  }
+}
+
+/// Identifier composed of peer + lamport (no counter).
+///
+/// Used to uniquely identify list elements in RGA and MovableList.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct IdLp {
+  pub peer: PeerID,
+  pub lamport: Lamport,
+}
+
+/// Full identifier with peer, lamport and counter.
+///
+/// Carries all three logical timestamps so that both [`ID`] and [`IdLp`]
+/// can be derived without extra lookups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct IdFull {
+  pub peer: PeerID,
+  pub lamport: Lamport,
+  pub counter: Counter,
+}
+
+impl IdFull {
+  /// Returns the [`ID`] (peer + counter) portion.
+  #[inline]
+  pub const fn id(&self) -> ID {
+    ID::new(self.peer, self.counter)
+  }
+
+  /// Returns the [`IdLp`] (peer + lamport) portion.
+  #[inline]
+  pub const fn idlp(&self) -> IdLp {
+    IdLp {
+      peer: self.peer,
+      lamport: self.lamport,
     }
   }
 }

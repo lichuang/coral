@@ -55,7 +55,7 @@
 
 - [x] **1.3 ContainerID 与 ContainerType**
   - [x] 1.3.1 定义枚举 `ContainerID::Root { name, container_type }` 和 `ContainerID::Normal { peer, counter, container_type }`
-  - [x] 1.3.2 定义枚举 `ContainerType { Text, Map, List, MovableList, Tree, Counter, Unknown(u8) }`
+  - [x] 1.3.2 定义枚举 `ContainerType { Map, List, Text, Tree, MovableList, Counter }`（不保留 Loro 的 `Unknown(u8)` forward-compatible variant）
   - [x] 1.3.3 为 `ContainerType` 实现 `to_u8` / `try_from_u8`
   - [ ] 1.3.4 为 `ContainerType` 实现 `default_value()`
   - [ ] 1.3.5 为 `ContainerID` 实现 `Display`；**需重构**：当前格式为 `<name>:<type>` 和 `<counter>@<peer>:<type>`，Loro 格式为 `cid:root-name:Map` 和 `cid:10@255:Map`（缺少 `cid:` 前缀）
@@ -260,16 +260,16 @@
   - [x] 6.1.1 定义 `Op { counter: Counter, container: ContainerIdx, content: OpContent }`
   - [x] 6.1.2 为 `Op` 实现 `HasLength`（`atom_len = content_len`）
 
-- [ ] **6.2 OpContent**
-  - [ ] 6.2.1 定义 `InnerContent` 枚举：当前仅有 placeholder `Map(MapOp)`/`List(ListOp)`/`Text(TextOp)`/`Tree(TreeOp)`/`Counter(CounterOp)`，**缺少所有具体字段**（`MapSet`、`InnerListOp`、`TreeOp` 等）
-  - [ ] 6.2.2 定义 `RawOpContent<'a>` 枚举（序列化/传输用）
-  - [ ] 6.2.3 定义 `MapSet { key: InternalString, value: Option<LoroValue> }`（`None` = 逻辑删除）
-  - [ ] 6.2.4 定义 `ListOp<'a>`：含 `Insert`、`Delete`、`Move`、`Set`、`StyleStart`、`StyleEnd`
-  - [ ] 6.2.5 定义 `InnerListOp`（arena 解析后的版本）
-  - [ ] 6.2.6 定义 `ListSlice<'a>`：`RawData(Cow<[LoroValue]>)` / `RawStr { str, unicode_len }`
-  - [ ] 6.2.7 定义 `DeleteSpanWithId`：支持双向删除跨度（`pos + signed_len`）
-  - [ ] 6.2.8 定义 `TreeOp`：`Create { target, parent, position }`、`Move { target, parent, position }`、`Delete { target }`
-  - [ ] 6.2.9 定义 `FutureInnerContent`：扩展点（如 Counter）
+- [x] **6.2 OpContent**
+  - [x] 6.2.1 定义 `OpContent`（`InnerContent`）枚举：`List(InnerListOp)` / `Map(MapSet)` / `Tree(Arc<TreeOp>)` / `Counter(f64)`
+  - [x] 6.2.2 定义 `RawOpContent<'a>` 枚举（序列化/传输用）
+  - [x] 6.2.3 定义 `MapSet { key: String, value: Option<CoralValue> }`（`None` = 逻辑删除）
+  - [x] 6.2.4 定义 `ListOp<'a>`：`Insert` / `Delete` / `Move` / `Set` / `StyleStart` / `StyleEnd`
+  - [x] 6.2.5 定义 `InnerListOp`（arena 解析后的版本，含 `InsertText`）
+  - [x] 6.2.6 定义 `ListSlice<'a>`：`RawData(Cow<[CoralValue]>)` / `RawStr { str, unicode_len }`
+  - [x] 6.2.7 定义 `DeleteSpanWithId`：支持双向删除跨度（`pos + signed_len`）
+  - [x] 6.2.8 定义 `TreeOp`：`Create` / `Move` / `Delete`
+  - [x] 6.2.9 ~~定义 `FutureInnerContent`：扩展点（`Counter(f64)` / `Unknown`）~~ → 删除 `FutureInnerContent`，`Counter(f64)` 直接作为 `OpContent` 的一级 variant（见 AGENTS.md "Intentional Divergences"）
 
 - [ ] **6.3 RawOp 与 RichOp**
   - [ ] 6.3.1 定义 `RawOp<'a> { id: ID, lamport: Lamport, container: ContainerIdx, content: RawOpContent<'a> }`
@@ -390,7 +390,7 @@
 
 - [ ] **9.2 Counter 操作定义**
   - [ ] 9.2.1 在 `RawOpContent` 中添加 `Counter(f64)`
-  - [ ] 9.2.2 在 `InnerContent` 中添加 `Future(FutureInnerContent::Counter(f64))` 或直接添加 `Counter(f64)`
+  - [x] 9.2.2 在 `OpContent` 中添加 `Counter(f64)`
 
 - [ ] **9.3 CounterHandler**
   - [ ] 9.3.1 定义 `CounterHandler`（Attached/Detached 双态）
@@ -678,7 +678,7 @@
 
 - [ ] **15.2 State 枚举**
   - [ ] 15.2.1 定义 `State` 枚举：
-    - `List(ListState)`、`MovableList(MovableListState)`、`Map(MapState)`、`Richtext(RichtextState)`、`Tree(TreeState)`、`Counter(CounterState)`、`Unknown(UnknownState)`
+    - `List(ListState)`、`MovableList(MovableListState)`、`Map(MapState)`、`Richtext(RichtextState)`、`Tree(TreeState)`、`Counter(CounterState)`
   - [ ] 15.2.2 为 `State` 实现 `ContainerState`：按变体分发
 
 - [ ] **15.3 ContainerStore**
@@ -1102,7 +1102,7 @@
 | Phase 3 | VersionVector 与 Frontiers | 28 | 25 | 3 | 89.3% |
 | Phase 4 | DAG（因果图） | 30 | 0 | 30 | 0.0% |
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
-| Phase 6 | Change 与 Op 定义 | 29 | 12 | 17 | 41.4% |
+| Phase 6 | Change 与 Op 定义 | 29 | 22 | 7 | 75.9% |
 | Phase 7 | OpLog（操作日志核心） | 28 | 0 | 28 | 0.0% |
 | Phase 8 | 事务系统（Transaction） | 17 | 0 | 17 | 0.0% |
 | Phase 9 | Counter CRDT | 18 | 0 | 18 | 0.0% |
@@ -1121,7 +1121,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **675** | **103** | **572** | **15.3%** |
+| **合计** | | **675** | **113** | **562** | **16.7%** |
 
 ### 关键已完成的里程碑
 

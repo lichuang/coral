@@ -11,6 +11,6 @@ mod value;
 
 pub use container::{ContainerID, ContainerType};
 pub use error::{CoralError, CoralResult};
-pub use id::ID;
+pub use id::{ID, IdFull, IdLp};
 pub use primitives::{Counter, Lamport, PeerID, Timestamp};
 pub use value::CoralValue;
