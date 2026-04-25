@@ -20,7 +20,7 @@ pub use content::{OpContent, RawOpContent};
 
 use crate::core::container::ContainerIdx;
 use crate::rle::{HasIndex, HasLength, Mergable, Sliceable};
-use crate::types::{Counter, ID, PeerID};
+use crate::types::{Counter, ID, Lamport, PeerID, Timestamp};
 
 /// A range of values in the value arena.
 ///
@@ -108,6 +108,136 @@ impl OpWithId {
     let start = self.op.counter;
     let end = start + self.op.atom_len() as i32;
     crate::version::IdSpan::new(self.peer, start, end)
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RawOp — transport / serialization form
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A raw operation in transport / serialization form.
+///
+/// Unlike [`Op`], `RawOp` carries the full [`ID`] (including peer) and
+/// lamport directly, because it may be transmitted outside the context of
+/// an enclosing [`Change`](crate::core::change::Change).
+#[derive(Debug, Clone)]
+pub struct RawOp<'a> {
+  /// Full identifier (peer + counter).
+  pub id: ID,
+  /// Lamport timestamp.
+  pub lamport: Lamport,
+  /// Target container (compact arena index).
+  pub container: ContainerIdx,
+  /// Operation payload (borrowed / transport form).
+  pub content: RawOpContent<'a>,
+}
+
+impl HasLength for RawOp<'_> {
+  fn content_len(&self) -> usize {
+    self.content.content_len()
+  }
+}
+
+impl HasIndex for RawOp<'_> {
+  type Int = Counter;
+
+  fn get_start_index(&self) -> Self::Int {
+    self.id.counter
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RichOp — op with full causal metadata
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A rich view of an [`Op`] with full causal metadata.
+///
+/// `RichOp` is produced when iterating over the operations inside a
+/// [`Change`](crate::core::change::Change).  It carries the same
+/// `peer`/`lamport`/`timestamp` as the enclosing change, plus `start`/`end`
+/// offsets for the case where the change has been sliced and this op is
+/// only partially included.
+#[derive(Debug, Clone, Copy)]
+pub struct RichOp<'a> {
+  /// Reference to the underlying operation.
+  pub op: &'a Op,
+  /// Peer that produced this operation.
+  pub peer: PeerID,
+  /// Lamport timestamp (from the enclosing change).
+  pub lamport: Lamport,
+  /// Physical timestamp in seconds (from the enclosing change).
+  pub timestamp: Timestamp,
+  /// Inclusive start offset within the op's content.
+  pub start: usize,
+  /// Exclusive end offset within the op's content.
+  pub end: usize,
+}
+
+impl<'a> RichOp<'a> {
+  /// Creates a new `RichOp` representing the full op (start = 0, end = atom_len).
+  pub fn new(op: &'a Op, peer: PeerID, lamport: Lamport, timestamp: Timestamp) -> Self {
+    let end = op.atom_len();
+    Self {
+      op,
+      peer,
+      lamport,
+      timestamp,
+      start: 0,
+      end,
+    }
+  }
+
+  /// Returns the full [`ID`] of this operation.
+  #[inline]
+  pub fn id(&self) -> ID {
+    ID::new(self.peer, self.op.counter)
+  }
+
+  /// Returns the counter span covered by this rich view.
+  pub fn id_span(&self) -> crate::version::IdSpan {
+    let start = self.op.counter + self.start as Counter;
+    let end = self.op.counter + self.end as Counter;
+    crate::version::IdSpan::new(self.peer, start, end)
+  }
+}
+
+impl std::ops::Deref for RichOp<'_> {
+  type Target = Op;
+
+  fn deref(&self) -> &Self::Target {
+    self.op
+  }
+}
+
+impl HasLength for RichOp<'_> {
+  fn content_len(&self) -> usize {
+    self.end - self.start
+  }
+}
+
+impl HasIndex for RichOp<'_> {
+  type Int = Counter;
+
+  fn get_start_index(&self) -> Self::Int {
+    self.op.counter + self.start as Counter
+  }
+}
+
+impl Sliceable for RichOp<'_> {
+  fn slice(&self, from: usize, to: usize) -> Self {
+    let len = self.content_len();
+    assert!(
+      from < to && to <= len,
+      "RichOp::slice out of bounds: [{from}, {to}) for len {len}"
+    );
+    Self {
+      op: self.op,
+      peer: self.peer,
+      lamport: self.lamport,
+      timestamp: self.timestamp,
+      start: self.start + from,
+      end: self.start + to,
+    }
   }
 }
 
@@ -396,5 +526,126 @@ mod tests {
       }),
     );
     assert!(!a.is_mergable(&b, &()));
+  }
+
+  // ── RawOp tests ───────────────────────────────────────────────────────────
+
+  #[test]
+  fn test_raw_op_has_length_and_index() {
+    let arena = InnerArena::new();
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::List));
+    let raw = RawOp {
+      id: ID::new(1, 10),
+      lamport: 5,
+      container: c,
+      content: RawOpContent::Counter(3.14),
+    };
+    assert_eq!(raw.content_len(), 1);
+    assert_eq!(raw.get_start_index(), 10);
+  }
+
+  #[test]
+  fn test_raw_op_list_content_len() {
+    let arena = InnerArena::new();
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::List));
+    let raw = RawOp {
+      id: ID::new(1, 0),
+      lamport: 1,
+      container: c,
+      content: RawOpContent::List(ListOp::Insert {
+        pos: 0,
+        slice: crate::container::list::ListSlice::RawData(std::borrow::Cow::Owned(vec![
+          crate::types::CoralValue::from(1i32),
+          crate::types::CoralValue::from(2i32),
+        ])),
+      }),
+    };
+    assert_eq!(raw.content_len(), 2);
+  }
+
+  // ── RichOp tests ──────────────────────────────────────────────────────────
+
+  #[test]
+  fn test_rich_op_deref_and_id() {
+    let arena = InnerArena::new();
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::Map));
+    let op = Op::new(
+      7,
+      c,
+      OpContent::Map(MapSet {
+        key: "k".into(),
+        value: None,
+      }),
+    );
+    let rich = RichOp::new(&op, 42, 100, 1_700_000_000);
+    assert_eq!(rich.id(), ID::new(42, 7));
+    assert_eq!(rich.counter, 7); // via Deref
+    assert_eq!(rich.container, c); // via Deref
+  }
+
+  #[test]
+  fn test_rich_op_has_length_and_index() {
+    let arena = InnerArena::new();
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::List));
+    let op = Op::new(
+      10,
+      c,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 3 },
+      }),
+    );
+    let rich = RichOp::new(&op, 1, 5, 0);
+    assert_eq!(rich.content_len(), 3);
+    assert_eq!(rich.get_start_index(), 10);
+
+    // slice to [1, 3)
+    let sliced = rich.slice(1, 3);
+    assert_eq!(sliced.content_len(), 2);
+    assert_eq!(sliced.get_start_index(), 11);
+    assert_eq!(sliced.start, 1);
+    assert_eq!(sliced.end, 3);
+  }
+
+  #[test]
+  fn test_rich_op_id_span() {
+    let arena = InnerArena::new();
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::List));
+    let op = Op::new(
+      5,
+      c,
+      OpContent::List(InnerListOp::Insert {
+        pos: 0,
+        slice: SliceRange { start: 0, end: 4 },
+      }),
+    );
+    let rich = RichOp::new(&op, 99, 10, 0);
+    let span = rich.id_span();
+    assert_eq!(span.peer, 99);
+    assert_eq!(span.counter.start, 5);
+    assert_eq!(span.counter.end, 9);
+
+    // sliced rich op
+    let sliced = rich.slice(1, 3);
+    let span2 = sliced.id_span();
+    assert_eq!(span2.counter.start, 6);
+    assert_eq!(span2.counter.end, 8);
+  }
+
+  #[test]
+  #[should_panic(expected = "RichOp::slice out of bounds")]
+  fn test_rich_op_slice_panics() {
+    let arena = InnerArena::new();
+    let c = arena.register(&ContainerID::new_root("c", ContainerType::Map));
+    let op = Op::new(
+      0,
+      c,
+      OpContent::Map(MapSet {
+        key: "k".into(),
+        value: None,
+      }),
+    );
+    let rich = RichOp::new(&op, 1, 1, 0);
+    let _ = rich.slice(0, 2); // atomic op has len 1, slicing [0,2) is out of bounds
   }
 }

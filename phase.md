@@ -271,9 +271,9 @@
   - [x] 6.2.8 定义 `TreeOp`：`Create` / `Move` / `Delete`
   - [x] 6.2.9 ~~定义 `FutureInnerContent`：扩展点（`Counter(f64)` / `Unknown`）~~ → 删除 `FutureInnerContent`，`Counter(f64)` 直接作为 `OpContent` 的一级 variant（见 AGENTS.md "Intentional Divergences"）
 
-- [ ] **6.3 RawOp 与 RichOp**
-  - [ ] 6.3.1 定义 `RawOp<'a> { id: ID, lamport: Lamport, container: ContainerIdx, content: RawOpContent<'a> }`
-  - [ ] 6.3.2 定义 `RichOp<'a> { op: &'a Op, peer: PeerID, lamport: Lamport, timestamp: Timestamp, start: usize, end: usize }`
+- [x] **6.3 RawOp 与 RichOp**
+  - [x] 6.3.1 定义 `RawOp<'a> { id: ID, lamport: Lamport, container: ContainerIdx, content: RawOpContent<'a> }`
+  - [x] 6.3.2 定义 `RichOp<'a> { op: &'a Op, peer: PeerID, lamport: Lamport, timestamp: Timestamp, start: usize, end: usize }`
 
 - [x] **6.4 Change**
   - [x] 6.4.1 定义 `Change<O = Op> { id: ID, lamport: Lamport, deps: Frontiers, timestamp: Timestamp, ops: RleVec<[O; 1]> }`
@@ -1102,7 +1102,7 @@
 | Phase 3 | VersionVector 与 Frontiers | 28 | 25 | 3 | 89.3% |
 | Phase 4 | DAG（因果图） | 30 | 0 | 30 | 0.0% |
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
-| Phase 6 | Change 与 Op 定义 | 29 | 22 | 7 | 75.9% |
+| Phase 6 | Change 与 Op 定义 | 29 | 25 | 4 | 86.2% |
 | Phase 7 | OpLog（操作日志核心） | 28 | 0 | 28 | 0.0% |
 | Phase 8 | 事务系统（Transaction） | 17 | 0 | 17 | 0.0% |
 | Phase 9 | Counter CRDT | 18 | 0 | 18 | 0.0% |
@@ -1121,7 +1121,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **675** | **113** | **562** | **16.7%** |
+| **合计** | | **675** | **115** | **560** | **17.0%** |
 
 ### 关键已完成的里程碑
 
