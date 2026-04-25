@@ -1,6 +1,6 @@
-//! Arena — compact container index mapping.
+//! InnerArena — compact container index mapping.
 //!
-//! [`Arena`] maintains the bidirectional mapping between [`ContainerID`] and
+//! [`InnerArena`] maintains the bidirectional mapping between [`ContainerID`] and
 //! [`ContainerIdx`](crate::core::container::ContainerIdx) so that full IDs can
 //! be recovered when needed for external APIs or serialization.
 //!
@@ -12,14 +12,14 @@ use crate::memory::str_arena::{StrAllocResult, StrArena};
 use crate::types::{ContainerID, CoralValue};
 use rustc_hash::FxHashMap;
 use std::num::NonZeroU16;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// Manages the bidirectional mapping between [`ContainerID`] and [`ContainerIdx`].
 ///
 /// Each field is protected by a [`Mutex`], matching Loro's `InnerSharedArena`
 /// design so that the arena can be shared between `OpLog` and `DocState`.
 #[derive(Debug, Default)]
-pub struct Arena {
+pub struct InnerArena {
   id_to_idx: Mutex<FxHashMap<ContainerID, ContainerIdx>>,
   idx_to_id: Mutex<Vec<ContainerID>>,
   parents: Mutex<FxHashMap<ContainerIdx, Option<ContainerIdx>>>,
@@ -31,7 +31,7 @@ pub struct Arena {
   str_arena: Mutex<StrArena>,
 }
 
-impl Arena {
+impl InnerArena {
   /// Creates an empty arena.
   pub fn new() -> Self {
     Self::default()
@@ -168,6 +168,47 @@ impl Arena {
     }
     Some(str_arena.get_str(result).to_string())
   }
+
+  /// Deep-clone the arena state.
+  ///
+  /// All mappings, parent links, values and string buffers are duplicated so
+  /// that modifications to the clone do not affect the original.
+  pub fn fork(&self) -> Self {
+    Self {
+      id_to_idx: Mutex::new(self.id_to_idx.lock().unwrap().clone()),
+      idx_to_id: Mutex::new(self.idx_to_id.lock().unwrap().clone()),
+      parents: Mutex::new(self.parents.lock().unwrap().clone()),
+      depths: Mutex::new(self.depths.lock().unwrap().clone()),
+      values: Mutex::new(self.values.lock().unwrap().clone()),
+      str_arena: Mutex::new(self.str_arena.lock().unwrap().clone()),
+    }
+  }
+}
+
+/// Thread-safe, reference-counted wrapper around [`InnerArena`].
+///
+/// `Clone` performs a shallow copy (increments the reference count).
+/// Use [`SharedArena::fork`] to obtain an independent deep copy.
+#[derive(Debug, Clone)]
+pub struct SharedArena(Arc<InnerArena>);
+
+impl SharedArena {
+  /// Wrap an existing [`InnerArena`] in a reference-counted pointer.
+  pub fn new(arena: InnerArena) -> Self {
+    Self(Arc::new(arena))
+  }
+
+  /// Create an independent deep copy of the arena state.
+  pub fn fork(&self) -> Self {
+    Self(Arc::new(self.0.fork()))
+  }
+}
+
+impl std::ops::Deref for SharedArena {
+  type Target = InnerArena;
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
 }
 
 #[cfg(test)]
@@ -177,7 +218,7 @@ mod tests {
 
   #[test]
   fn test_arena_roundtrip() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let id = ContainerID::new_root("my_map", ContainerType::Map);
     let idx = arena.register(&id);
 
@@ -187,7 +228,7 @@ mod tests {
 
   #[test]
   fn test_arena_deduplicate() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let id = ContainerID::new_root("my_list", ContainerType::List);
     let idx1 = arena.register(&id);
     let idx2 = arena.register(&id);
@@ -196,7 +237,7 @@ mod tests {
 
   #[test]
   fn test_arena_parent() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let child_id = ContainerID::new_root("child", ContainerType::Map);
     let parent_id = ContainerID::new_root("parent", ContainerType::List);
     let child = arena.register(&child_id);
@@ -208,7 +249,7 @@ mod tests {
 
   #[test]
   fn test_arena_depth_computed() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let root = arena.register(&ContainerID::new_root("root", ContainerType::Map));
     let child = arena.register(&ContainerID::new_root("child", ContainerType::List));
     let grandchild = arena.register(&ContainerID::new_root("grandchild", ContainerType::Map));
@@ -228,7 +269,7 @@ mod tests {
 
   #[test]
   fn test_arena_path_to_root() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let root = arena.register(&ContainerID::new_root("root", ContainerType::Map));
     let child = arena.register(&ContainerID::new_root("child", ContainerType::List));
     let grandchild = arena.register(&ContainerID::new_root("grandchild", ContainerType::Map));
@@ -249,7 +290,7 @@ mod tests {
 
   #[test]
   fn test_arena_parent_none_after_some() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let parent = arena.register(&ContainerID::new_root("parent", ContainerType::Map));
     let child = arena.register(&ContainerID::new_root("child", ContainerType::List));
 
@@ -265,7 +306,7 @@ mod tests {
 
   #[test]
   fn test_arena_alloc_value_and_get() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let idx0 = arena.alloc_value(CoralValue::from("hello"));
     let idx1 = arena.alloc_value(CoralValue::from(42i32));
     let idx2 = arena.alloc_value(CoralValue::from(true));
@@ -282,7 +323,7 @@ mod tests {
 
   #[test]
   fn test_arena_alloc_str_and_get() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let r1 = arena.alloc_str("Hello");
     let r2 = arena.alloc_str("World");
     let r3 = arena.alloc_str("你好");
@@ -295,5 +336,69 @@ mod tests {
     assert_eq!(r1.unicode_len, 5);
     assert_eq!(r2.unicode_len, 5);
     assert_eq!(r3.unicode_len, 2);
+  }
+
+  #[test]
+  fn test_arena_fork_independence() {
+    let original = InnerArena::new();
+    let id = ContainerID::new_root("map", ContainerType::Map);
+    let idx = original.register(&id);
+    original.set_parent(idx, None);
+    let v0 = original.alloc_value(CoralValue::from("original"));
+    let s0 = original.alloc_str("hello");
+
+    let forked = original.fork();
+
+    // Forked sees the pre-fork state.
+    assert_eq!(forked.get_id(idx), Some(id.clone()));
+    assert_eq!(forked.get_parent(idx), None);
+    assert_eq!(forked.get_value(v0), Some(CoralValue::from("original")));
+    assert_eq!(forked.get_str(&s0), Some("hello".to_string()));
+
+    // Modify original — forked must remain unchanged.
+    original.set_parent(idx, Some(idx));
+    original.alloc_value(CoralValue::from("extra"));
+    original.alloc_str(" world");
+
+    assert_eq!(forked.get_parent(idx), None);
+    assert_eq!(forked.get_value(v0 + 1), None);
+    assert_eq!(
+      forked.get_str(&StrAllocResult {
+        start_byte: s0.start_byte + s0.unicode_len + 1,
+        unicode_len: 6,
+      }),
+      None
+    );
+
+    // Modify forked — original must remain unchanged.
+    forked.alloc_value(CoralValue::from("forked"));
+    assert_eq!(original.get_value(v0 + 1), Some(CoralValue::from("extra")));
+  }
+
+  #[test]
+  fn test_shared_arena_clone_is_shallow() {
+    let shared = SharedArena::new(InnerArena::new());
+    let cloned = shared.clone();
+
+    let id = ContainerID::new_root("list", ContainerType::List);
+    let idx = shared.register(&id);
+
+    // Clone sees the same data because it shares the inner Arc.
+    assert_eq!(cloned.get_id(idx), Some(id));
+  }
+
+  #[test]
+  fn test_shared_arena_fork_is_deep() {
+    let shared = SharedArena::new(InnerArena::new());
+    let id = ContainerID::new_root("text", ContainerType::Text);
+    let idx = shared.register(&id);
+
+    let forked = shared.fork();
+
+    // Modify through the original shared handle.
+    shared.set_parent(idx, Some(idx));
+
+    // Forked must remain independent.
+    assert_eq!(forked.get_parent(idx), None);
   }
 }

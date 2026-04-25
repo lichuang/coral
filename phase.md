@@ -214,18 +214,18 @@
 
 ---
 
-## Phase 5: Arena（容器索引系统）
+## Phase 5: InnerInnerArena（容器索引系统）
 
 **目标**: 实现 ContainerID 到紧凑 ContainerIdx 的映射，管理容器父子关系。
-**验收标准**: Arena 能正确分配索引、双向查找、管理父子关系、分配值和字符串。
+**验收标准**: InnerArena 能正确分配索引、双向查找、管理父子关系、分配值和字符串。
 
 - [x] **5.1 ContainerIdx**
   - [x] 5.1.1 定义 `ContainerIdx(u32)`：高 5 位编码 `ContainerType`，低 27 位编码索引
   - [x] 5.1.2 实现 `ContainerIdx::from_index_and_type(idx, container_type)`
   - [x] 5.1.3 实现 `ContainerIdx::get_type()` 和 `to_index()`（对应 `to_u32` 语义）
 
-- [x] **5.2 Arena 核心**
-  - [x] 5.2.1 定义 `Arena`；已重构：`parents` 改为 `FxHashMap<ContainerIdx, Option<ContainerIdx>>`，新增 `depths: Vec<Option<NonZeroU16>>`
+- [x] **5.2 InnerArena 核心**
+  - [x] 5.2.1 定义 `InnerArena`；已重构：`parents` 改为 `FxHashMap<ContainerIdx, Option<ContainerIdx>>`，新增 `depths: Vec<Option<NonZeroU16>>`
   - [x] 5.2.2 实现 `register_container(id) -> ContainerIdx`：幂等分配（`register`）
   - [x] 5.2.3 实现 `id_to_idx(id)` 和 `idx_to_id(idx)`（`get_id`/`get_idx`）
   - [x] 5.2.4 实现 `set_parent(child, parent)` 和 `get_parent(child)`
@@ -236,17 +236,17 @@
   - [x] 5.3.2 定义 `StrArena`（Loro 使用 `append_only_bytes::AppendOnlyBytes` 作为底层存储，维护 unicode→byte 索引以支持按 unicode 位置切片），实现 `alloc_str(str) -> StrAllocResult`
   - [x] 5.3.3 实现 `get_value(idx)` 和 `get_str(result)`
 
-- [ ] **5.4 SharedArena**
-  - [ ] 5.4.1 定义 `SharedArena(Arc<Mutex<Arena>>)` 或内部可变性包装
-  - [ ] 5.4.2 实现 `fork()`：深拷贝 Arena 状态（用于文档 fork）
+- [x] **5.4 SharedArena**
+  - [x] 5.4.1 定义 `SharedArena(Arc<Arena>)`（Arena 已自带 Mutex 内部可变性）
+  - [x] 5.4.2 实现 `fork()`：深拷贝 InnerArena 状态（用于文档 fork）
 
 - [x] **5.5 Phase 5 测试**
   - [x] 5.5.1 测试 `ContainerIdx` 的位编码/解码
-  - [x] 5.5.2 测试 Arena 的 ID↔Idx 双向映射
+  - [x] 5.5.2 测试 InnerArena 的 ID↔Idx 双向映射
   - [x] 5.5.3 测试父子关系设置和查询
   - [x] 5.5.4 测试路径计算（从子到根）
   - [x] 5.5.5 测试值和字符串的分配与读取
-  - [ ] 5.5.6 测试 `Arena::fork()` 的独立性
+  - [x] 5.5.6 测试 `InnerArena::fork()` 的独立性
   - [x] 5.5.7 运行 fmt、clippy、test，全部通过
 
 ---
@@ -349,7 +349,7 @@
 - [ ] **8.2 事务生命周期**
   - [ ] 8.2.1 实现 `Transaction::new(doc, origin)`：锁定 OpLog 和 DocState，分配 counter/lamport
   - [ ] 8.2.2 实现 `apply_local_op(container, content, event_hint, doc)`：
-    - 将 `RawOpContent` 转为 `Op`（通过 Arena 分配 slice/字符串）
+    - 将 `RawOpContent` 转为 `Op`（通过 InnerArena 分配 slice/字符串）
     - 应用 op 到 `DocState`
     - 更新 DAG 版本追踪
     - 记录 EventHint
@@ -440,7 +440,7 @@
   - [ ] 10.4.1 定义 `MapHandler`（Attached/Detached）
   - [ ] 10.4.2 实现 `insert(key, value)`、`delete(key)`
   - [ ] 10.4.3 实现 `get(key) -> Option<LoroValue>`
-  - [ ] 10.4.4 实现 `insert_container(key, handler)`：插入嵌套容器，在 Arena 中建立父子关系
+  - [ ] 10.4.4 实现 `insert_container(key, handler)`：插入嵌套容器，在 InnerArena 中建立父子关系
 
 - [ ] **10.5 Phase 10 测试**
   - [ ] 10.5.1 测试 Map 单操作：insert、get、delete
@@ -448,7 +448,7 @@
   - [ ] 10.5.3 测试并发插入同一 key：A insert("k", "A")，B insert("k", "B")，高 lamport 胜
   - [ ] 10.5.4 测试并发 insert + delete：A insert("k", "v")，B delete("k")，高 lamport 决定结果
   - [ ] 10.5.5 测试 tombstone：delete 后再并发 insert，新 insert 参与 LWW 比较
-  - [ ] 10.5.6 测试嵌套容器：Map 中 insert List，Arena 父子关系正确
+  - [ ] 10.5.6 测试嵌套容器：Map 中 insert List，InnerArena 父子关系正确
   - [ ] 10.5.7 测试 `to_diff` / `apply_diff` 互为逆操作
   - [ ] 10.5.8 测试双文档 100 次随机编辑后 merge，结果一致
   - [ ] 10.5.9 运行 fmt、clippy、test，全部通过
@@ -698,7 +698,7 @@
     - 处理容器复活（`bring_back = true`）：被删除的容器重新出现，发送全量事件
   - [ ] 15.4.4 实现 `start_txn()` / `commit_txn()` / `abort_txn()`
   - [ ] 15.4.5 实现 `get_value()`（浅层）和 `get_deep_value()`（递归解析子容器）
-  - [ ] 15.4.6 实现 `get_path_to_container(idx)`：利用 Arena 的 parent 链计算 root-to-leaf 路径
+  - [ ] 15.4.6 实现 `get_path_to_container(idx)`：利用 InnerArena 的 parent 链计算 root-to-leaf 路径
   - [ ] 15.4.7 实现 `init_with_states_and_version(frontiers, states)`：从快照初始化
 
 - [ ] **15.5 Phase 15 测试**
@@ -759,7 +759,7 @@
 
 - [ ] **17.1 CoralDocInner**
   - [ ] 17.1.1 定义 `CoralDocInner { oplog, state, arena, config, txn, auto_commit, detached, observer, diff_calculator }`
-  - [ ] 17.1.2 实现 `CoralDocInner::new()`：创建 OpLog、DocState、Arena，建立共享
+  - [ ] 17.1.2 实现 `CoralDocInner::new()`：创建 OpLog、DocState、InnerArena，建立共享
   - [ ] 17.1.3 实现 `txn()` / `txn_with_origin()`：获取或创建 Transaction
   - [ ] 17.1.4 实现 `import(bytes)` / `import_with(bytes, origin)`：
     - 解码变更
@@ -772,7 +772,7 @@
     - 应用 diff 到 DocState
   - [ ] 17.1.7 实现 `checkout_to_latest()` / `attach()` / `detach()`
   - [ ] 17.1.8 实现 `merge(other)`：导入 other 的所有更新
-  - [ ] 17.1.9 实现 `fork()`：深拷贝 OpLog + DocState + Arena，分配新 peer_id
+  - [ ] 17.1.9 实现 `fork()`：深拷贝 OpLog + DocState + InnerArena，分配新 peer_id
   - [ ] 17.1.10 实现 `get_value()` / `get_deep_value()`
   - [ ] 17.1.11 实现 `set_peer_id()` / `peer_id()`
   - [ ] 17.1.12 实现 `commit()` / `commit_with(options)` / `implicit_commit_then_stop()`
@@ -1101,7 +1101,7 @@
 | Phase 2 | RLE 基础 | 22 | 22 | 0 | 100.0% |
 | Phase 3 | VersionVector 与 Frontiers | 28 | 25 | 3 | 89.3% |
 | Phase 4 | DAG（因果图） | 30 | 0 | 30 | 0.0% |
-| Phase 5 | Arena（容器索引系统） | 25 | 13 | 12 | 52.0% |
+| Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
 | Phase 6 | Change 与 Op 定义 | 29 | 12 | 17 | 41.4% |
 | Phase 7 | OpLog（操作日志核心） | 28 | 0 | 28 | 0.0% |
 | Phase 8 | 事务系统（Transaction） | 17 | 0 | 17 | 0.0% |

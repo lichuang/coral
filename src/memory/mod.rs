@@ -2,3 +2,5 @@
 
 pub mod arena;
 pub mod str_arena;
+
+pub use arena::SharedArena;

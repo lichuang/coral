@@ -299,7 +299,7 @@ impl<O: Mergable + HasLength + HasIndex<Int = Counter> + Sliceable + Debug> Slic
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::memory::arena::Arena;
+  use crate::memory::arena::InnerArena;
   use crate::op::{CounterOp, Op, OpContent};
   use crate::types::{ContainerID, ContainerType};
 
@@ -309,7 +309,7 @@ mod tests {
 
   #[test]
   fn test_change_new() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let id = ID::new(1, 0);
     let deps = Frontiers::from_id(ID::new(0, 0));
     let container = arena.register(&ContainerID::new_root("counter", ContainerType::Counter));
@@ -345,7 +345,7 @@ mod tests {
 
   #[test]
   fn test_change_has_length_single_op() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![Op::new(0, c, OpContent::Counter(CounterOp))];
     let change = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
@@ -355,7 +355,7 @@ mod tests {
 
   #[test]
   fn test_change_has_length_multiple_ops() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
       Op::new(0, c, OpContent::Counter(CounterOp)),
@@ -379,7 +379,7 @@ mod tests {
 
   #[test]
   fn test_change_has_index_non_empty() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
       Op::new(10, c, OpContent::Counter(CounterOp)),
@@ -393,7 +393,7 @@ mod tests {
 
   #[test]
   fn test_change_has_index_after_slice() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
       Op::new(0, c, OpContent::Counter(CounterOp)),
@@ -411,7 +411,7 @@ mod tests {
   /// Slicing from the start of a Change preserves id, lamport and deps.
   #[test]
   fn test_change_slice_from_start() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let deps = Frontiers::from_id(ID::new(0, 0));
     let ops = vec![
@@ -433,7 +433,7 @@ mod tests {
   /// Slicing from the middle adjusts id, lamport and deps to the new start.
   #[test]
   fn test_change_slice_from_middle() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let deps = Frontiers::from_id(ID::new(0, 0));
     let ops = vec![
@@ -455,7 +455,7 @@ mod tests {
   /// Slicing out exactly one op from the middle produces a single-op Change.
   #[test]
   fn test_change_slice_single_op() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
       Op::new(0, c, OpContent::Counter(CounterOp)),
@@ -473,7 +473,7 @@ mod tests {
   /// Slicing the first op keeps original deps because the start offset is zero.
   #[test]
   fn test_change_slice_first_op() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let deps = Frontiers::from_id(ID::new(0, 0));
     let ops = vec![
@@ -494,7 +494,7 @@ mod tests {
   /// Slicing the last op makes deps point to the op immediately before the slice.
   #[test]
   fn test_change_slice_last_op() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let deps = Frontiers::from_id(ID::new(0, 0));
     let ops = vec![
@@ -516,7 +516,7 @@ mod tests {
   /// Slicing the entire Change produces an equivalent clone.
   #[test]
   fn test_change_slice_whole() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let deps = Frontiers::from_id(ID::new(0, 0));
     let ops = vec![
@@ -538,7 +538,7 @@ mod tests {
   /// After slicing, the remaining ops must still have contiguous counters.
   #[test]
   fn test_change_slice_counter_continuity() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
       Op::new(0, c, OpContent::Counter(CounterOp)),
@@ -559,7 +559,7 @@ mod tests {
   #[test]
   fn test_change_slice_many_ops_binary_search() {
     // When ops.len() >= 8, the slice uses binary search to locate the start.
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let mut ops = Vec::new();
     for i in 0..10 {
@@ -588,7 +588,7 @@ mod tests {
   #[test]
   #[should_panic(expected = "assertion failed")]
   fn test_change_slice_empty_range_panics() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![
       Op::new(0, c, OpContent::Counter(CounterOp)),
@@ -611,7 +611,7 @@ mod tests {
   fn test_change_merge_panics() {
     use crate::rle::Mergable;
 
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![Op::new(0, c, OpContent::Counter(CounterOp))];
     let mut a = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
@@ -623,7 +623,7 @@ mod tests {
   #[test]
   #[should_panic(expected = "assertion failed")]
   fn test_change_slice_out_of_bounds() {
-    let arena = Arena::new();
+    let arena = InnerArena::new();
     let c = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
     let ops = vec![Op::new(0, c, OpContent::Counter(CounterOp))];
     let change = Change::new(ops_from_vec(ops), Frontiers::new(), ID::new(1, 0), 5, 0);
