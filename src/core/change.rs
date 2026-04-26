@@ -7,6 +7,7 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use crate::core::dag::DagNode;
 use crate::op::Op;
 use crate::rle::{HasIndex, HasLength, Mergable, RleVec, Sliceable};
 use crate::types::{Counter, ID, Lamport, PeerID, Timestamp};
@@ -151,6 +152,26 @@ impl<O: Mergable + HasLength + HasIndex + Debug> Change<O> {
     } else {
       false
     }
+  }
+}
+
+// ── DagNode trait for Change ───────────────────────────────────────────────
+
+impl<O: Mergable + HasLength + HasIndex + Debug> DagNode for Change<O> {
+  fn deps(&self) -> &Frontiers {
+    &self.deps
+  }
+
+  fn lamport(&self) -> Lamport {
+    self.lamport
+  }
+
+  fn id_start(&self) -> ID {
+    self.id
+  }
+
+  fn len(&self) -> usize {
+    self.len()
   }
 }
 

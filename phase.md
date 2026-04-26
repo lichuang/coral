@@ -176,9 +176,9 @@
 **目标**: 实现有向无环图，支持变更的因果依赖、LCA 查找和拓扑遍历。
 **验收标准**: 能正确构建 DAG、检测环、找 LCA、遍历祖先。
 
-- [ ] **4.1 DAG Node 与 Trait**
-  - [ ] 4.1.1 定义 `DagNode` trait：`fn deps(&self) -> &Frontiers`、`fn lamport(&self) -> Lamport`、`fn id_start(&self) -> ID`、`fn len(&self) -> usize`
-  - [ ] 4.1.2 定义 `Dag` trait：`fn get(&self, id: ID) -> Option<&Node>`、`fn frontier(&self) -> &Frontiers`、`fn vv(&self) -> &VersionVector`、`fn contains(&self, id: ID) -> bool`
+- [x] **4.1 DAG Node 与 Trait**
+  - [x] 4.1.1 定义 `DagNode` trait：`fn deps(&self) -> &Frontiers`、`fn lamport(&self) -> Lamport`、`fn id_start(&self) -> ID`、`fn len(&self) -> usize`
+  - [x] 4.1.2 定义 `Dag` trait：`fn get(&self, id: ID) -> Option<&Node>`、`fn frontier(&self) -> &Frontiers`、`fn vv(&self) -> &VersionVector`、`fn contains(&self, id: ID) -> bool`
 
 - [ ] **4.2 DAG 节点实现**
   - [ ] 4.2.1 定义 `DagNodeInner`：`peer`、`cnt`（起始 counter）、`lamport`、`deps: Frontiers`、`len: usize`、`has_succ: bool`
@@ -1100,7 +1100,7 @@
 | Phase 1 | 基础类型系统 | 54 | 21 | 33 | 38.9% |
 | Phase 2 | RLE 基础 | 22 | 22 | 0 | 100.0% |
 | Phase 3 | VersionVector 与 Frontiers | 28 | 25 | 3 | 89.3% |
-| Phase 4 | DAG（因果图） | 30 | 0 | 30 | 0.0% |
+| Phase 4 | DAG（因果图） | 30 | 2 | 28 | 6.7% |
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
 | Phase 6 | Change 与 Op 定义 | 29 | 25 | 4 | 86.2% |
 | Phase 7 | OpLog（操作日志核心） | 28 | 0 | 28 | 0.0% |
@@ -1121,7 +1121,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **675** | **115** | **560** | **17.0%** |
+| **合计** | | **675** | **117** | **558** | **17.3% |
 
 ### 关键已完成的里程碑
 
