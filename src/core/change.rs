@@ -157,7 +157,7 @@ impl<O: Mergable + HasLength + HasIndex + Debug> Change<O> {
 
 // ── DagNode trait for Change ───────────────────────────────────────────────
 
-impl<O: Mergable + HasLength + HasIndex + Debug> DagNode for Change<O> {
+impl<O: Mergable + HasLength + HasIndex<Int = Counter> + Sliceable + Debug> DagNode for Change<O> {
   fn deps(&self) -> &Frontiers {
     &self.deps
   }

@@ -1,20 +1,21 @@
-//! Causal DAG traits.
+//! Causal DAG traits and node types.
 //!
 //! The DAG is built from [`DagNode`]s, each representing a single [`Change`].
 //! It tracks causal dependencies (`deps`), logical timestamps (`lamport`), and
 //! identity (`id_start`) so that history can be traversed, merged, and diffed.
 
+use crate::rle::Sliceable;
 use crate::types::{Counter, ID, Lamport, PeerID};
 use crate::version::{Frontiers, VersionVector};
-use std::sync::OnceLock;
+use std::ops::Deref;
+use std::sync::{Arc, OnceLock};
 
 /// A node in the causal directed acyclic graph.
 ///
-/// Each node corresponds to one [`Change`](crate::core::change::Change) —
-/// a transaction boundary.  The DAG is built from Change to Change, not
-/// from individual Op to Op.
+/// Aligned with Loro's design: `DagNode` extends `Debug` and `Sliceable`
+/// so that nodes can be sliced during DAG traversal (e.g. LCA lookup).
 #[allow(dead_code)]
-pub trait DagNode {
+pub trait DagNode: std::fmt::Debug + Sliceable {
   /// The direct causal dependencies of this node.
   fn deps(&self) -> &Frontiers;
 
@@ -30,12 +31,15 @@ pub trait DagNode {
 
 /// A causal DAG storing [`DagNode`]s indexed by their start [`ID`].
 #[allow(dead_code)]
-pub trait Dag {
+pub trait Dag: std::fmt::Debug {
   /// Concrete node type stored in this DAG.
   type Node: DagNode;
 
   /// Looks up a node by the [`ID`] of its first operation.
-  fn get(&self, id: ID) -> Option<&Self::Node>;
+  ///
+  /// Returns an owned value so that `AppDagNode` (backed by `Arc`) can be
+  /// cloned cheaply without lifetime ties to the DAG container.
+  fn get(&self, id: ID) -> Option<Self::Node>;
 
   /// Returns the current frontier — the minimal set of leaf IDs.
   fn frontier(&self) -> &Frontiers;
@@ -65,6 +69,8 @@ pub struct DagNodeInner {
   pub deps: Frontiers,
   pub len: usize,
   pub has_succ: bool,
+  /// Lazy cached version vector computed from this node's ancestors.
+  pub vv: OnceLock<VersionVector>,
 }
 
 #[allow(dead_code)]
@@ -78,6 +84,7 @@ impl DagNodeInner {
       deps,
       len,
       has_succ: false,
+      vv: OnceLock::new(),
     }
   }
 
@@ -111,22 +118,29 @@ impl DagNodeInner {
 
 /// A node in the application-level DAG.
 ///
-/// Wraps [`DagNodeInner`] and lazily caches the version vector computed
-/// from this node's ancestors.
+/// Wraps [`DagNodeInner`] via `Arc` so that cloning is O(1) and nodes can be
+/// shared across iterators and caches.  This matches Loro's `AppDagNode`
+/// design.
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AppDagNode {
-  pub inner: DagNodeInner,
-  vv: OnceLock<VersionVector>,
+  inner: Arc<DagNodeInner>,
+}
+
+impl Deref for AppDagNode {
+  type Target = DagNodeInner;
+
+  fn deref(&self) -> &Self::Target {
+    &self.inner
+  }
 }
 
 #[allow(dead_code)]
 impl AppDagNode {
-  /// Wraps an existing [`DagNodeInner`].
+  /// Wraps an existing [`DagNodeInner`] in an `Arc`.
   pub fn new(inner: DagNodeInner) -> Self {
     Self {
-      inner,
-      vv: OnceLock::new(),
+      inner: Arc::new(inner),
     }
   }
 
@@ -138,7 +152,7 @@ impl AppDagNode {
   where
     F: FnOnce(&Frontiers) -> VersionVector,
   {
-    self.vv.get_or_init(|| {
+    self.inner.vv.get_or_init(|| {
       let mut vv = get_vv(&self.inner.deps);
       vv.set_last(self.inner.id_last());
       vv
@@ -150,10 +164,32 @@ impl AppDagNode {
   /// Called when the DAG is modified in a way that affects ancestor
   /// relationships (e.g. out-of-order insertion).
   pub fn invalidate_vv(&mut self) {
-    self.vv = OnceLock::new();
+    let inner = Arc::make_mut(&mut self.inner);
+    inner.vv = OnceLock::new();
   }
 }
 
+#[allow(dead_code)]
+impl Sliceable for AppDagNode {
+  fn slice(&self, from: usize, to: usize) -> Self {
+    let new_inner = DagNodeInner {
+      peer: self.peer,
+      cnt: self.cnt + from as Counter,
+      lamport: self.lamport + from as Lamport,
+      deps: if from == 0 {
+        self.deps.clone()
+      } else {
+        Frontiers::from_id(ID::new(self.peer, self.cnt + from as Counter - 1))
+      },
+      len: to - from,
+      has_succ: false,
+      vv: OnceLock::new(),
+    };
+    Self::new(new_inner)
+  }
+}
+
+#[allow(dead_code)]
 impl DagNode for AppDagNode {
   fn deps(&self) -> &Frontiers {
     &self.inner.deps
@@ -229,6 +265,22 @@ mod tests {
   }
 
   #[test]
+  fn test_app_dag_node_sliceable() {
+    let inner = DagNodeInner::new(1, 0, 5, Frontiers::from_id(ID::new(0, 0)), 4);
+    let node = AppDagNode::new(inner);
+
+    let sliced = node.slice(1, 3);
+    assert_eq!(sliced.id_start(), ID::new(1, 1));
+    assert_eq!(sliced.lamport(), 6);
+    assert_eq!(sliced.len(), 2);
+    assert_eq!(sliced.deps(), &Frontiers::from_id(ID::new(1, 0)));
+
+    let sliced_from_start = node.slice(0, 2);
+    assert_eq!(sliced_from_start.id_start(), ID::new(1, 0));
+    assert_eq!(sliced_from_start.deps(), &Frontiers::from_id(ID::new(0, 0)));
+  }
+
+  #[test]
   fn test_app_dag_node_vv_lazy() {
     let inner = DagNodeInner::new(1, 0, 5, Frontiers::new(), 3);
     let node = AppDagNode::new(inner);
@@ -267,10 +319,17 @@ mod tests {
     let inner = DagNodeInner::new(1, 0, 5, Frontiers::new(), 1);
     let mut node = AppDagNode::new(inner);
 
-    node.vv(|_| VersionVector::new());
-    assert!(node.vv.get().is_some());
+    let vv1 = node.vv(|_| VersionVector::new());
+    assert_eq!(vv1.get(1).copied(), Some(1));
+
+    // Cached: closure should NOT be called again.
+    let vv2 = node.vv(|_| panic!("should not be called — cached"));
+    assert_eq!(vv2.get(1).copied(), Some(1));
 
     node.invalidate_vv();
-    assert!(node.vv.get().is_none());
+
+    // After invalidate, closure IS called again and yields the same VV.
+    let vv3 = node.vv(|_| VersionVector::new());
+    assert_eq!(vv3.get(1).copied(), Some(1));
   }
 }
