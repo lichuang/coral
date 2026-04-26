@@ -180,9 +180,9 @@
   - [x] 4.1.1 定义 `DagNode` trait：`fn deps(&self) -> &Frontiers`、`fn lamport(&self) -> Lamport`、`fn id_start(&self) -> ID`、`fn len(&self) -> usize`
   - [x] 4.1.2 定义 `Dag` trait：`fn get(&self, id: ID) -> Option<&Node>`、`fn frontier(&self) -> &Frontiers`、`fn vv(&self) -> &VersionVector`、`fn contains(&self, id: ID) -> bool`
 
-- [ ] **4.2 DAG 节点实现**
-  - [ ] 4.2.1 定义 `DagNodeInner`：`peer`、`cnt`（起始 counter）、`lamport`、`deps: Frontiers`、`len: usize`、`has_succ: bool`
-  - [ ] 4.2.2 定义 `AppDagNode`：包装 `DagNodeInner`，支持 lazy VV 计算（`OnceCell<VersionVector>`）
+- [x] **4.2 DAG 节点实现**
+  - [x] 4.2.1 定义 `DagNodeInner`：`peer`、`cnt`（起始 counter）、`lamport`、`deps: Frontiers`、`len: usize`、`has_succ: bool`
+  - [x] 4.2.2 定义 `AppDagNode`：包装 `DagNodeInner`，支持 lazy VV 计算（`OnceCell<VersionVector>`）
 
 - [ ] **4.3 AppDag 实现**
   - [ ] 4.3.1 定义 `AppDag`：`map: BTreeMap<ID, AppDagNode>`、`frontiers: Frontiers`、`vv: VersionVector`
@@ -1100,7 +1100,7 @@
 | Phase 1 | 基础类型系统 | 54 | 21 | 33 | 38.9% |
 | Phase 2 | RLE 基础 | 22 | 22 | 0 | 100.0% |
 | Phase 3 | VersionVector 与 Frontiers | 28 | 25 | 3 | 89.3% |
-| Phase 4 | DAG（因果图） | 30 | 2 | 28 | 6.7% |
+| Phase 4 | DAG（因果图） | 30 | 4 | 26 | 13.3% |
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
 | Phase 6 | Change 与 Op 定义 | 29 | 25 | 4 | 86.2% |
 | Phase 7 | OpLog（操作日志核心） | 28 | 0 | 28 | 0.0% |
@@ -1121,7 +1121,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **675** | **117** | **558** | **17.3% |
+| **合计** | | **675** | **119** | **556** | **17.6% |
 
 ### 关键已完成的里程碑
 
