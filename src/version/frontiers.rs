@@ -2,7 +2,7 @@
 //!
 //! See [`Frontiers`] for details.
 //!
-//! This implementation aligns with Loro's three-state enum design:
+//! This implementation uses a three-state enum design:
 //! - [`Frontiers::None`] — empty document (zero allocation)
 //! - [`Frontiers::ID`] — linear history, exactly one tip (most common, zero allocation)
 //! - [`Frontiers::Map`] — concurrent edits with multiple tips (Arc-shared HashMap)

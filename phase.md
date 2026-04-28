@@ -184,13 +184,13 @@
   - [x] 4.2.1 定义 `DagNodeInner`：`peer`、`cnt`（起始 counter）、`lamport`、`deps: Frontiers`、`len: usize`、`has_succ: bool`
   - [x] 4.2.2 定义 `AppDagNode`：包装 `DagNodeInner`，支持 lazy VV 计算（`OnceCell<VersionVector>`）
 
-- [ ] **4.3 AppDag 实现**
-  - [ ] 4.3.1 定义 `AppDag`：`map: BTreeMap<ID, AppDagNode>`、`frontiers: Frontiers`、`vv: VersionVector`
-  - [ ] 4.3.2 实现 `handle_new_change(change, from_local)`：插入新节点，尝试与前一个 peer 的节点合并
-  - [ ] 4.3.3 实现合并条件判断：连续 counter、相同 deps、无后继（`has_succ`）
-  - [ ] 4.3.4 实现 `update_version_on_new_local_op`：维护 `pending_txn_node` 和 vv/frontiers
-  - [ ] 4.3.5 实现 `get_version_vector(node_id)`：递归遍历 deps 计算 VV（带缓存）
-  - [ ] 4.3.6 实现 `frontiers_to_vv(frontiers)` 和 `vv_to_frontiers(vv)`
+- [x] **4.3 AppDag 实现**
+  - [x] 4.3.1 定义 `AppDag`：`map: BTreeMap<ID, AppDagNode>`、`frontiers: Frontiers`、`vv: VersionVector`
+  - [x] 4.3.2 实现 `handle_new_change(change, from_local)`：插入新节点，尝试与前一个 peer 的节点合并
+  - [x] 4.3.3 实现合并条件判断：连续 counter、相同 deps、无后继（`has_succ`）
+  - [x] 4.3.4 实现 `update_version_on_new_local_op`：维护 `pending_txn_node` 和 vv/frontiers
+  - [x] 4.3.5 实现 `get_version_vector(node_id)`：递归遍历 deps 计算 VV（带缓存）
+  - [x] 4.3.6 实现 `frontiers_to_vv(frontiers)` 和 `vv_to_frontiers(vv)`
 
 - [ ] **4.4 LCA 算法**
   - [ ] 4.4.1 实现 `find_common_ancestor(a_id, b_id)`：使用优先队列（按 lamport 降序）从两个前沿同时回溯
@@ -204,13 +204,13 @@
   - [ ] 4.5.3 实现 `iter()`：按 lamport 序遍历
 
 - [ ] **4.6 Phase 4 测试**
-  - [ ] 4.6.1 测试线性历史的 DAG 构建和 vv 计算
-  - [ ] 4.6.2 测试分叉/合并历史的 DAG 构建
+  - [x] 4.6.1 测试线性历史的 DAG 构建和 vv 计算
+  - [x] 4.6.2 测试分叉/合并历史的 DAG 构建
   - [ ] 4.6.3 测试 LCA：两个分支的共同祖先
   - [ ] 4.6.4 测试 LCA：其中一个分支是另一个的祖先
-  - [ ] 4.6.5 测试 `frontiers_to_vv` 和 `vv_to_frontiers` 的互逆性
+  - [x] 4.6.5 测试 `frontiers_to_vv` 和 `vv_to_frontiers` 的互逆性
   - [ ] 4.6.6 测试 `travel_ancestors` 的遍历顺序正确性
-  - [ ] 4.6.7 运行 fmt、clippy、test，全部通过
+  - [x] 4.6.7 运行 fmt、clippy、test，全部通过
 
 ---
 
@@ -1100,7 +1100,7 @@
 | Phase 1 | 基础类型系统 | 54 | 21 | 33 | 38.9% |
 | Phase 2 | RLE 基础 | 22 | 22 | 0 | 100.0% |
 | Phase 3 | VersionVector 与 Frontiers | 28 | 25 | 3 | 89.3% |
-| Phase 4 | DAG（因果图） | 30 | 4 | 26 | 13.3% |
+| Phase 4 | DAG（因果图） | 30 | 17 | 13 | 56.7% |
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
 | Phase 6 | Change 与 Op 定义 | 29 | 25 | 4 | 86.2% |
 | Phase 7 | OpLog（操作日志核心） | 28 | 0 | 28 | 0.0% |
@@ -1121,7 +1121,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **675** | **119** | **556** | **17.6% |
+| **合计** | | **675** | **132** | **543** | **19.6%** |
 
 ### 关键已完成的里程碑
 

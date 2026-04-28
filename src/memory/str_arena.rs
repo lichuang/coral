@@ -5,7 +5,7 @@
 //! every 128 bytes so that slicing by unicode range is O(log n) instead
 //! of O(n).
 //!
-//! This implementation is aligned with Loro's `StrArena`.
+//! Append-only byte buffer with unicode indexing for efficient text slicing.
 
 #![allow(dead_code)]
 
@@ -17,7 +17,7 @@ use std::ops::{Bound, RangeBounds};
 /// When the total byte length grows by more than this amount since the last
 /// sampled point, a new [`Index`] entry is appended.  A smaller value trades
 /// memory for faster `slice_by_unicode` (less linear scanning), while a larger
-/// value is more memory-efficient.  128 bytes is the same value used by Loro.
+/// value is more memory-efficient.
 const INDEX_INTERVAL: u32 = 128;
 
 /// Handle returned by [`StrArena::alloc`] that locates an allocated string

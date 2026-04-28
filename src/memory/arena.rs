@@ -5,7 +5,7 @@
 //! be recovered when needed for external APIs or serialization.
 //!
 //! It also tracks parent-child relationships and per-container nesting depth,
-//! aligned with Loro's `SharedArena` design.
+//! with per-field Mutex protection for thread-safe sharing.
 
 use crate::core::container::ContainerIdx;
 use crate::memory::str_arena::{StrAllocResult, StrArena};
@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 
 /// Manages the bidirectional mapping between [`ContainerID`] and [`ContainerIdx`].
 ///
-/// Each field is protected by a [`Mutex`], matching Loro's `InnerSharedArena`
-/// design so that the arena can be shared between `OpLog` and `DocState`.
+/// Each field is protected by a [`Mutex`] so that the arena can be shared
+/// between `OpLog` and `DocState`.
 #[derive(Debug, Default)]
 pub struct InnerArena {
   id_to_idx: Mutex<FxHashMap<ContainerID, ContainerIdx>>,

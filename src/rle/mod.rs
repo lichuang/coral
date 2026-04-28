@@ -2,12 +2,12 @@
 //!
 //! This module provides the core traits and containers that enable `Change`s
 //! and `Op`s to be merged, sliced, and stored compactly — the same primitives
-//! that Loro uses inside its `RleVec` and causal-graph iterators.
+//! used inside `RleVec` and causal-graph iterators.
 //!
 //! # Design note
 //!
 //! The API and internal structure of `RleVec` are intentionally aligned with
-//! Loro's `loro-rle` crate so that future porting of algorithms (checkout,
+//! the reference design so that future algorithms (checkout,
 //! diff, encoding) can be done with minimal friction.
 
 pub mod rle_impl;
