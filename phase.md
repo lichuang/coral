@@ -192,24 +192,24 @@
   - [x] 4.3.5 实现 `get_version_vector(node_id)`：递归遍历 deps 计算 VV（带缓存）
   - [x] 4.3.6 实现 `frontiers_to_vv(frontiers)` 和 `vv_to_frontiers(vv)`
 
-- [ ] **4.4 LCA 算法**
-  - [ ] 4.4.1 实现 `find_common_ancestor(a_id, b_id)`：使用优先队列（按 lamport 降序）从两个前沿同时回溯
-  - [ ] 4.4.2 返回 LCA 的 `Frontiers` 和 `DiffMode`
-  - [ ] 4.4.3 实现优化路径：单 peer 线性历史直接比较 counter
-  - [ ] 4.4.4 实现 `remove_included_frontiers(vv, deps)`：从 VV 中移除被 deps 祖先包含的条目
+- [x] **4.4 LCA 算法**
+  - [x] 4.4.1 实现 `find_common_ancestor(a_id, b_id)`：使用优先队列（按 lamport 降序）从两个前沿同时回溯
+  - [x] 4.4.2 返回 LCA 的 `Frontiers` 和 `DiffMode`
+  - [x] 4.4.3 实现优化路径：单 peer 线性历史直接比较 counter
+  - [x] 4.4.4 实现 `remove_included_frontiers(vv, deps)`：从 VV 中移除被 deps 祖先包含的条目
 
-- [ ] **4.5 DAG 遍历**
-  - [ ] 4.5.1 实现 `travel_ancestors(id, f)`：从指定 ID 反向遍历祖先（lamport 降序）
-  - [ ] 4.5.2 实现 `iter_causal()`：按因果序遍历所有节点
-  - [ ] 4.5.3 实现 `iter()`：按 lamport 序遍历
+- [x] **4.5 DAG 遍历**
+  - [x] 4.5.1 实现 `travel_ancestors(id, f)`：从指定 ID 反向遍历祖先（lamport 降序）
+  - [x] 4.5.2 实现 `iter_causal()`：按因果序遍历所有节点
+  - [x] 4.5.3 实现 `iter()`：按 lamport 序遍历
 
-- [ ] **4.6 Phase 4 测试**
+- [x] **4.6 Phase 4 测试**
   - [x] 4.6.1 测试线性历史的 DAG 构建和 vv 计算
   - [x] 4.6.2 测试分叉/合并历史的 DAG 构建
-  - [ ] 4.6.3 测试 LCA：两个分支的共同祖先
-  - [ ] 4.6.4 测试 LCA：其中一个分支是另一个的祖先
+  - [x] 4.6.3 测试 LCA：两个分支的共同祖先
+  - [x] 4.6.4 测试 LCA：其中一个分支是另一个的祖先
   - [x] 4.6.5 测试 `frontiers_to_vv` 和 `vv_to_frontiers` 的互逆性
-  - [ ] 4.6.6 测试 `travel_ancestors` 的遍历顺序正确性
+  - [x] 4.6.6 测试 `travel_ancestors` 的遍历顺序正确性
   - [x] 4.6.7 运行 fmt、clippy、test，全部通过
 
 ---
@@ -1100,7 +1100,7 @@
 | Phase 1 | 基础类型系统 | 54 | 21 | 33 | 38.9% |
 | Phase 2 | RLE 基础 | 22 | 22 | 0 | 100.0% |
 | Phase 3 | VersionVector 与 Frontiers | 28 | 25 | 3 | 89.3% |
-| Phase 4 | DAG（因果图） | 30 | 17 | 13 | 56.7% |
+| Phase 4 | DAG（因果图） | 24 | 24 | 0 | 100.0% |
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
 | Phase 6 | Change 与 Op 定义 | 29 | 25 | 4 | 86.2% |
 | Phase 7 | OpLog（操作日志核心） | 28 | 0 | 28 | 0.0% |
@@ -1121,7 +1121,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **675** | **132** | **543** | **19.6%** |
+| **合计** | | **669** | **139** | **530** | **20.8%** |
 
 ### 关键已完成的里程碑
 

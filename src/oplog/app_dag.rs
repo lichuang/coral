@@ -8,14 +8,25 @@ use crate::core::dag::{Dag, DagNode};
 use crate::rle::{HasLength, Sliceable};
 use crate::types::{Counter, ID, Lamport, PeerID};
 use crate::version::{Frontiers, ImVersionVector, VersionVector};
+use rustc_hash::FxHashSet;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex, OnceLock};
 
-// ═══════════════════════════════════════════════════════════════════════════
-// AppDagNodeInner
-// ═══════════════════════════════════════════════════════════════════════════
+/// Indicates the relationship between two versions for diffing purposes.
+///
+/// - [`Linear`] — one version is a direct ancestor of the other.
+/// - [`Branch`] — the versions have diverged and share a common ancestor
+///   that is strictly older than both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffMode {
+  /// Linear history: the target is reachable by walking forward from the
+  /// source (or vice-versa).
+  Linear,
+  /// Branching history: the two versions are concurrent or diverged.
+  Branch,
+}
 
 /// Internal fields of an application-level DAG node.
 ///
@@ -31,7 +42,7 @@ pub struct AppDagNodeInner {
   /// Peer that produced this run of operations.
   pub(crate) peer: PeerID,
   /// Starting counter (inclusive) of the run within the peer's history.
-  pub(crate) cnt: Counter,
+  pub(crate) counter: Counter,
   /// Lamport timestamp of the first operation in this run.
   pub(crate) lamport: Lamport,
   /// Direct causal dependencies — the minimal set of IDs this node depends on.
@@ -48,10 +59,16 @@ pub struct AppDagNodeInner {
 #[allow(dead_code)]
 impl AppDagNodeInner {
   /// Creates a new `AppDagNodeInner`.
-  pub fn new(peer: PeerID, cnt: Counter, lamport: Lamport, deps: Frontiers, len: usize) -> Self {
+  pub fn new(
+    peer: PeerID,
+    counter: Counter,
+    lamport: Lamport,
+    deps: Frontiers,
+    len: usize,
+  ) -> Self {
     Self {
       peer,
-      cnt,
+      counter,
       lamport,
       deps,
       len,
@@ -60,10 +77,31 @@ impl AppDagNodeInner {
     }
   }
 
+  /// Constructs an `AppDagNodeInner` from a [`Change`].
+  ///
+  /// The node's `peer`, `counter`, `lamport`, `deps`, and `len` are derived
+  /// directly from the change.  `has_succ` starts as `false` and the VV
+  /// cache is initially empty.
+  pub fn from_change<O>(change: &crate::core::change::Change<O>) -> Self
+  where
+    O: crate::rle::Mergable
+      + crate::rle::HasLength
+      + crate::rle::HasIndex<Int = Counter>
+      + std::fmt::Debug,
+  {
+    Self::new(
+      change.id().peer,
+      change.id().counter,
+      change.lamport(),
+      change.deps().clone(),
+      change.content_len(),
+    )
+  }
+
   /// The [`ID`] of the first operation in this node.
   #[inline]
   pub fn id_start(&self) -> ID {
-    ID::new(self.peer, self.cnt)
+    ID::new(self.peer, self.counter)
   }
 
   /// The [`ID`] of the last operation in this node.
@@ -75,7 +113,7 @@ impl AppDagNodeInner {
   /// The exclusive end [`ID`] (first ID after this node).
   #[inline]
   pub fn id_end(&self) -> ID {
-    ID::new(self.peer, self.cnt + self.len as Counter)
+    ID::new(self.peer, self.counter + self.len as Counter)
   }
 
   /// The inclusive last counter.
@@ -87,18 +125,14 @@ impl AppDagNodeInner {
   /// The exclusive end counter.
   #[inline]
   pub fn end_counter(&self) -> Counter {
-    self.cnt + self.len as Counter
+    self.counter + self.len as Counter
   }
 
   /// Returns `true` if `id` falls inside this node's counter range.
   pub fn contains_id(&self, id: ID) -> bool {
-    id.peer == self.peer && id.counter >= self.cnt && id.counter < self.id_end().counter
+    id.peer == self.peer && id.counter >= self.counter && id.counter < self.id_end().counter
   }
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// AppDagNode
-// ═══════════════════════════════════════════════════════════════════════════
 
 /// A node in the application-level DAG.
 ///
@@ -158,12 +192,12 @@ impl Sliceable for AppDagNode {
     debug_assert!(to > from, "slice requires to > from");
     let new_inner = AppDagNodeInner {
       peer: self.peer,
-      cnt: self.cnt + from as Counter,
+      counter: self.counter + from as Counter,
       lamport: self.lamport + from as Lamport,
       deps: if from == 0 {
         self.deps.clone()
       } else {
-        Frontiers::from_id(ID::new(self.peer, self.cnt + from as Counter - 1))
+        Frontiers::from_id(ID::new(self.peer, self.counter + from as Counter - 1))
       },
       len: to - from,
       has_succ: false,
@@ -191,10 +225,6 @@ impl DagNode for AppDagNode {
     self.inner.len
   }
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// AppDag
-// ═══════════════════════════════════════════════════════════════════════════
 
 /// Application-level causal DAG.
 ///
@@ -279,20 +309,34 @@ impl AppDag {
       + crate::rle::HasIndex<Int = Counter>
       + std::fmt::Debug,
   {
+    // Number of atomic ops in this change.
     let len = change.content_len();
+
+    // Update version metadata (frontiers, vv, pending_txn_node) before the node
+    // is materialised.  This must run first because subsequent logic relies on
+    // the DAG's version state being consistent.
     self.update_version_on_new_change(change, from_local);
 
+    // Try RLE-merge with the last node from the same peer.
+    //
+    // A merge is possible only when the new change depends exclusively on its
+    // own peer's previous tail (deps_on_self).  If the tail already has a
+    // successor from another peer we cannot merge — the node boundary must be
+    // preserved so that cross-peer dependencies remain valid.
     let mut inserted = false;
     if change.deps_on_self() {
       inserted = self.with_last_mut_of_peer(change.id().peer, |last| {
         let last = last.unwrap();
+
+        // Another node already depends on this tail — boundary is frozen.
         if last.has_succ {
           return false;
         }
 
+        // Invariants: same peer, continuous counter, continuous lamport.
         debug_assert_eq!(last.peer, change.id().peer);
         debug_assert_eq!(
-          last.cnt + last.len as Counter,
+          last.counter + last.len as Counter,
           change.id().counter,
           "counter is not continuous"
         );
@@ -302,26 +346,24 @@ impl AppDag {
           "lamport is not continuous"
         );
 
+        // Extend the existing node's length to cover the new change's range.
         let inner = Arc::make_mut(&mut last.inner);
-        inner.len = (change.id().counter - inner.cnt) as usize + len;
+        inner.len = (change.id().counter - inner.counter) as usize + len;
         inner.has_succ = false;
         true
       });
     }
 
+    // If RLE-merge was not possible, create a brand-new DAG node.
     if !inserted {
-      let node = AppDagNode::new(AppDagNodeInner {
-        peer: change.id().peer,
-        cnt: change.id().counter,
-        lamport: change.lamport(),
-        deps: change.deps().clone(),
-        len,
-        has_succ: false,
-        vv: OnceLock::new(),
-      });
+      let node = AppDagNode::new(AppDagNodeInner::from_change(change));
 
       let mut map = self.map.lock().unwrap();
       map.insert(node.id_start(), node);
+
+      // Enforce the invariant that every dependency points to the *end* of a
+      // DAG node.  If a dep lands in the middle of an existing node, split
+      // that node so the dependency target becomes a clean boundary.
       self.handle_deps_break_points(change.deps().iter(), change.id().peer, Some(&mut map));
     }
   }
@@ -400,7 +442,7 @@ impl AppDag {
       Some(node) => {
         debug_assert!(
           node.peer == start_id.peer
-            && node.cnt + node.len as Counter == start_id.counter
+            && node.counter + node.len as Counter == start_id.counter
             && deps.len() == 1
             && deps.as_single().unwrap().peer == start_id.peer
         );
@@ -408,15 +450,13 @@ impl AppDag {
         inner.len += len;
       }
       None => {
-        let node = AppDagNode::new(AppDagNodeInner {
-          peer: start_id.peer,
-          cnt: start_id.counter,
-          lamport: start_lamport,
-          deps: deps.clone(),
+        let node = AppDagNode::new(AppDagNodeInner::new(
+          start_id.peer,
+          start_id.counter,
+          start_lamport,
+          deps.clone(),
           len,
-          has_succ: false,
-          vv: OnceLock::new(),
-        });
+        ));
         self.pending_txn_node = Some(node);
       }
     }
@@ -450,7 +490,7 @@ impl AppDag {
 
     if let Some(node) = &self.pending_txn_node
       && node.peer == id.peer
-      && node.cnt <= id.counter
+      && node.counter <= id.counter
       && node.end_counter() > id.counter
     {
       return Some(node.clone());
@@ -468,20 +508,20 @@ impl AppDag {
       return Frontiers::default();
     };
 
-    let offset = id.counter - node.cnt;
+    let offset = id.counter - node.counter;
     if offset == 0 {
       node.deps.clone()
     } else {
-      Frontiers::from_id(ID::new(id.peer, node.cnt + offset - 1))
+      Frontiers::from_id(ID::new(id.peer, node.counter + offset - 1))
     }
   }
 
   /// Lamport timestamp of a single operation.
   pub fn get_lamport(&self, id: &ID) -> Option<Lamport> {
     self.get(*id).and_then(|node| {
-      debug_assert!(id.counter >= node.cnt);
+      debug_assert!(id.counter >= node.counter);
       if node.end_counter() > id.counter {
-        Some(node.lamport + (id.counter - node.cnt) as Lamport)
+        Some(node.lamport + (id.counter - node.counter) as Lamport)
       } else {
         None
       }
@@ -693,6 +733,211 @@ impl AppDag {
     }
   }
 
+  // ── LCA (Lowest Common Ancestor) ─────────────────────────────────────────
+
+  /// Finds the lowest common ancestor(s) of two operations.
+  ///
+  /// Returns the LCA frontiers and a [`DiffMode`] indicating whether the
+  /// two versions are on the same linear chain or have diverged.
+  ///
+  /// # Algorithm
+  ///
+  /// 1. **Fast paths**
+  ///    - Same peer → linear, the smaller counter is the LCA.
+  ///    - `a`'s VV includes `b` → `b` is `a`'s ancestor, linear.
+  ///    - `b`'s VV includes `a` → `a` is `b`'s ancestor, linear.
+  ///
+  /// 2. **General case** (branching)
+  ///    - Use a priority queue (max-heap by lamport) to traverse ancestors
+  ///      from both sides simultaneously.
+  ///    - Track which side has visited each node.
+  ///    - When a node is visited by both sides, it is a common ancestor.
+  ///    - Collect all common ancestors and shrink to the minimal frontiers
+  ///      (remove any ID that is an ancestor of another common ancestor).
+  pub fn find_common_ancestor(&self, a: ID, b: ID) -> Option<(Frontiers, DiffMode)> {
+    // Fast path: same peer.
+    if a.peer == b.peer {
+      let ancestor = if a.counter < b.counter { a } else { b };
+      return Some((Frontiers::from_id(ancestor), DiffMode::Linear));
+    }
+
+    let a_vv = self.get_vv(a)?;
+    let b_vv = self.get_vv(b)?;
+
+    // Fast path: a contains b.
+    if a_vv.includes_id(b) {
+      return Some((Frontiers::from_id(b), DiffMode::Linear));
+    }
+    // Fast path: b contains a.
+    if b_vv.includes_id(a) {
+      return Some((Frontiers::from_id(a), DiffMode::Linear));
+    }
+
+    // General case: concurrent branches.
+    let lca = self.find_common_ancestor_general(a, b)?;
+    Some((lca, DiffMode::Branch))
+  }
+
+  /// General-case LCA using a priority-queue traversal.
+  fn find_common_ancestor_general(&self, a: ID, b: ID) -> Option<Frontiers> {
+    /// Processes one side of the bidirectional ancestor search.
+    ///
+    /// `visited` is the set for the current `side`; `other_visited` is the
+    /// opposing side. When an ID is found in both sets it is a common ancestor.
+    fn construct_common_ancestor(
+      id: ID,
+      from_a: bool,
+      visited: &mut FxHashSet<ID>,
+      other_visited: &FxHashSet<ID>,
+      common: &mut Vec<ID>,
+      heap: &mut BinaryHeap<(Lamport, ID, bool)>,
+      dag: &AppDag,
+    ) {
+      if !visited.insert(id) {
+        return;
+      }
+      if other_visited.contains(&id) {
+        common.push(id);
+      }
+      for dep in dag.find_deps_of_id(id).iter() {
+        if !visited.contains(&dep)
+          && let Some(l) = dag.get_lamport(&dep)
+        {
+          heap.push((l, dep, from_a));
+        }
+      }
+    }
+
+    // (lamport, id, from_a)  true = from a, false = from b
+    let mut heap: BinaryHeap<(Lamport, ID, bool)> = BinaryHeap::new();
+
+    // Seed with direct dependencies of a and b.
+    for id in self.find_deps_of_id(a).iter() {
+      heap.push((self.get_lamport(&id)?, id, true));
+    }
+    for id in self.find_deps_of_id(b).iter() {
+      heap.push((self.get_lamport(&id)?, id, false));
+    }
+
+    let mut visited_a = FxHashSet::default();
+    let mut visited_b = FxHashSet::default();
+    let mut common = Vec::new();
+
+    while let Some((_lamport, id, from_a)) = heap.pop() {
+      if from_a {
+        construct_common_ancestor(
+          id,
+          from_a,
+          &mut visited_a,
+          &visited_b,
+          &mut common,
+          &mut heap,
+          self,
+        );
+      } else {
+        construct_common_ancestor(
+          id,
+          from_a,
+          &mut visited_b,
+          &visited_a,
+          &mut common,
+          &mut heap,
+          self,
+        );
+      }
+    }
+
+    if common.is_empty() {
+      Some(Frontiers::new())
+    } else {
+      Some(self.shrink_frontiers(&common.into_iter().collect()))
+    }
+  }
+
+  /// Removes entries from `vv` that are already covered by the ancestors of
+  /// `deps`.
+  ///
+  /// For each ID in `deps`, this computes its version vector and removes any
+  /// peer entry from `vv` whose counter is ≤ the dep's VV counter. The result
+  /// is a `vv` that only contains operations not already known by `deps`.
+  pub fn remove_included_frontiers(&self, vv: &mut VersionVector, deps: &Frontiers) {
+    for id in deps.iter() {
+      if let Some(dep_vv) = self.get_vv(id) {
+        for (&peer, &counter) in dep_vv.iter() {
+          if let Some(vv_counter) = vv.get_mut(&peer)
+            && *vv_counter <= counter
+          {
+            vv.remove(&peer);
+          }
+        }
+      }
+    }
+  }
+
+  // ── Ancestor traversal ───────────────────────────────────────────────────
+
+  /// Traverses ancestors of `id` in reverse causal order (lamport descending).
+  ///
+  /// The traversal **includes** the node at `id` itself, then continues
+  /// backwards through its `deps` recursively.
+  ///
+  /// Calls `f` for each node encountered. Stops when `f` returns `false`.
+  pub fn travel_ancestors<F>(&self, id: ID, mut f: F)
+  where
+    F: FnMut(&AppDagNode) -> bool,
+  {
+    let mut visited = FxHashSet::default();
+    let mut heap: BinaryHeap<(Lamport, ID)> = BinaryHeap::new();
+
+    if let Some(node) = self.get(id) {
+      if !f(&node) {
+        return;
+      }
+      for dep in node.deps.iter() {
+        if let Some(lamport) = self.get_lamport(&dep) {
+          heap.push((lamport, dep));
+        }
+      }
+    }
+
+    while let Some((_lamport, id)) = heap.pop() {
+      if !visited.insert(id) {
+        continue;
+      }
+      let Some(node) = self.get(id) else {
+        continue;
+      };
+      if !f(&node) {
+        break;
+      }
+      for dep in node.deps.iter() {
+        if !visited.contains(&dep)
+          && let Some(lamport) = self.get_lamport(&dep)
+        {
+          heap.push((lamport, dep));
+        }
+      }
+    }
+  }
+
+  /// Iterates over all DAG nodes in causal (topological) order.
+  ///
+  /// The underlying `BTreeMap` is already sorted by [`ID`] (peer, then
+  /// counter), which is a valid topological order because every dependency
+  /// points to a strictly smaller counter.
+  pub fn iter_causal(&self) -> impl Iterator<Item = AppDagNode> + '_ {
+    // NOTE: We collect to avoid holding the Mutex guard across the iterator.
+    let nodes: Vec<AppDagNode> = self.map.lock().unwrap().values().cloned().collect();
+    nodes.into_iter()
+  }
+
+  /// Iterates over all DAG nodes in descending lamport order.
+  pub fn iter(&self) -> impl Iterator<Item = AppDagNode> + '_ {
+    let mut nodes: Vec<AppDagNode> = self.map.lock().unwrap().values().cloned().collect();
+    nodes.sort_by_key(|n| std::cmp::Reverse(n.lamport()));
+    nodes.into_iter()
+  }
+
   // ── Internal helpers ─────────────────────────────────────────────────────
 
   /// When a new node is inserted, ensure that every dependency points to the
@@ -728,7 +973,7 @@ impl AppDag {
           handled = true;
         } else {
           // Dependency points to the middle — split the node.
-          let new_node = target.slice((id.counter - target.cnt) as usize + 1, target.len);
+          let new_node = target.slice((id.counter - target.counter) as usize + 1, target.len);
           {
             let inner = Arc::make_mut(&mut target.inner);
             inner.len -= new_node.len;
@@ -772,101 +1017,8 @@ impl Dag for AppDag {
   }
 }
 
-#[test]
-fn test_dag_node_inner_basic() {
-  let inner = AppDagNodeInner::new(1, 0, 5, Frontiers::from_id(ID::new(0, 0)), 3);
-  assert_eq!(inner.id_start(), ID::new(1, 0));
-  assert_eq!(inner.id_last(), ID::new(1, 2));
-  assert_eq!(inner.id_end(), ID::new(1, 3));
-  assert!(inner.contains_id(ID::new(1, 0)));
-  assert!(inner.contains_id(ID::new(1, 2)));
-  assert!(!inner.contains_id(ID::new(1, 3)));
-  assert!(!inner.contains_id(ID::new(2, 0)));
-  assert!(!inner.has_succ);
-}
-
-#[test]
-fn test_app_dag_node_dag_node_trait() {
-  let inner = AppDagNodeInner::new(1, 5, 10, Frontiers::from_id(ID::new(0, 0)), 2);
-  let node = AppDagNode::new(inner);
-
-  assert_eq!(node.id_start(), ID::new(1, 5));
-  assert_eq!(node.lamport(), 10);
-  assert_eq!(node.deps(), &Frontiers::from_id(ID::new(0, 0)));
-  assert_eq!(node.len(), 2);
-}
-
-#[test]
-fn test_app_dag_node_sliceable() {
-  let inner = AppDagNodeInner::new(1, 0, 5, Frontiers::from_id(ID::new(0, 0)), 4);
-  let node = AppDagNode::new(inner);
-
-  let sliced = node.slice(1, 3);
-  assert_eq!(sliced.id_start(), ID::new(1, 1));
-  assert_eq!(sliced.lamport(), 6);
-  assert_eq!(sliced.len(), 2);
-  assert_eq!(sliced.deps(), &Frontiers::from_id(ID::new(1, 0)));
-
-  let sliced_from_start = node.slice(0, 2);
-  assert_eq!(sliced_from_start.id_start(), ID::new(1, 0));
-  assert_eq!(sliced_from_start.deps(), &Frontiers::from_id(ID::new(0, 0)));
-}
-
-#[test]
-fn test_app_dag_node_vv_lazy() {
-  let inner = AppDagNodeInner::new(1, 0, 5, Frontiers::new(), 3);
-  let node = AppDagNode::new(inner);
-
-  // First access computes the VV via the closure.
-  let vv = node.vv(|deps| {
-    assert!(deps.is_empty());
-    ImVersionVector::new()
-  });
-  assert_eq!(vv.get(&1).copied(), Some(3)); // exclusive end = cnt + len = 0 + 3
-
-  // Second access returns the cached value (closure is not called again).
-  let vv2 = node.vv(|_| panic!("should not be called — cached"));
-  assert_eq!(vv2.get(&1).copied(), Some(3));
-}
-
-#[test]
-fn test_app_dag_node_vv_with_deps() {
-  let inner = AppDagNodeInner::new(2, 0, 8, Frontiers::from_id(ID::new(1, 2)), 2);
-  let node = AppDagNode::new(inner);
-
-  let vv = node.vv(|deps| {
-    let mut base = ImVersionVector::new();
-    for id in deps.iter() {
-      base.set_last(id);
-    }
-    base
-  });
-
-  assert_eq!(vv.get(&1).copied(), Some(3)); // from deps: peer 1, counter 2 -> exclusive end 3
-  assert_eq!(vv.get(&2).copied(), Some(2)); // from self: peer 2, cnt 0, len 2 -> exclusive end 2
-}
-
-#[test]
-fn test_app_dag_node_invalidate_vv() {
-  let inner = AppDagNodeInner::new(1, 0, 5, Frontiers::new(), 1);
-  let mut node = AppDagNode::new(inner);
-
-  let vv1 = node.vv(|_| ImVersionVector::new());
-  assert_eq!(vv1.get(&1).copied(), Some(1));
-
-  // Cached: closure should NOT be called again.
-  let vv2 = node.vv(|_| panic!("should not be called — cached"));
-  assert_eq!(vv2.get(&1).copied(), Some(1));
-
-  node.invalidate_vv();
-
-  // After invalidate, closure IS called again and yields the same VV.
-  let vv3 = node.vv(|_| ImVersionVector::new());
-  assert_eq!(vv3.get(&1).copied(), Some(1));
-}
-
 #[cfg(test)]
-mod app_dag_tests {
+mod tests {
   use super::*;
   use crate::core::change::Change;
   use crate::memory::arena::InnerArena;
@@ -874,6 +1026,101 @@ mod app_dag_tests {
   use crate::rle::RleVec;
   use crate::types::{ContainerID, ContainerType, ID};
   use crate::version::Frontiers;
+
+  // ── AppDagNodeInner / AppDagNode unit tests ──────────────────────────────
+
+  #[test]
+  fn test_dag_node_inner_basic() {
+    let inner = AppDagNodeInner::new(1, 0, 5, Frontiers::from_id(ID::new(0, 0)), 3);
+    assert_eq!(inner.id_start(), ID::new(1, 0));
+    assert_eq!(inner.id_last(), ID::new(1, 2));
+    assert_eq!(inner.id_end(), ID::new(1, 3));
+    assert!(inner.contains_id(ID::new(1, 0)));
+    assert!(inner.contains_id(ID::new(1, 2)));
+    assert!(!inner.contains_id(ID::new(1, 3)));
+    assert!(!inner.contains_id(ID::new(2, 0)));
+    assert!(!inner.has_succ);
+  }
+
+  #[test]
+  fn test_app_dag_node_dag_node_trait() {
+    let inner = AppDagNodeInner::new(1, 5, 10, Frontiers::from_id(ID::new(0, 0)), 2);
+    let node = AppDagNode::new(inner);
+
+    assert_eq!(node.id_start(), ID::new(1, 5));
+    assert_eq!(node.lamport(), 10);
+    assert_eq!(node.deps(), &Frontiers::from_id(ID::new(0, 0)));
+    assert_eq!(node.len(), 2);
+  }
+
+  #[test]
+  fn test_app_dag_node_sliceable() {
+    let inner = AppDagNodeInner::new(1, 0, 5, Frontiers::from_id(ID::new(0, 0)), 4);
+    let node = AppDagNode::new(inner);
+
+    let sliced = node.slice(1, 3);
+    assert_eq!(sliced.id_start(), ID::new(1, 1));
+    assert_eq!(sliced.lamport(), 6);
+    assert_eq!(sliced.len(), 2);
+    assert_eq!(sliced.deps(), &Frontiers::from_id(ID::new(1, 0)));
+
+    let sliced_from_start = node.slice(0, 2);
+    assert_eq!(sliced_from_start.id_start(), ID::new(1, 0));
+    assert_eq!(sliced_from_start.deps(), &Frontiers::from_id(ID::new(0, 0)));
+  }
+
+  #[test]
+  fn test_app_dag_node_vv_lazy() {
+    let inner = AppDagNodeInner::new(1, 0, 5, Frontiers::new(), 3);
+    let node = AppDagNode::new(inner);
+
+    // First access computes the VV via the closure.
+    let vv = node.vv(|deps| {
+      assert!(deps.is_empty());
+      ImVersionVector::new()
+    });
+    assert_eq!(vv.get(&1).copied(), Some(3)); // exclusive end = counter + len = 0 + 3
+
+    // Second access returns the cached value (closure is not called again).
+    let vv2 = node.vv(|_| panic!("should not be called — cached"));
+    assert_eq!(vv2.get(&1).copied(), Some(3));
+  }
+
+  #[test]
+  fn test_app_dag_node_vv_with_deps() {
+    let inner = AppDagNodeInner::new(2, 0, 8, Frontiers::from_id(ID::new(1, 2)), 2);
+    let node = AppDagNode::new(inner);
+
+    let vv = node.vv(|deps| {
+      let mut base = ImVersionVector::new();
+      for id in deps.iter() {
+        base.set_last(id);
+      }
+      base
+    });
+
+    assert_eq!(vv.get(&1).copied(), Some(3)); // from deps: peer 1, counter 2 -> exclusive end 3
+    assert_eq!(vv.get(&2).copied(), Some(2)); // from self: peer 2, counter 0, len 2 -> exclusive end 2
+  }
+
+  #[test]
+  fn test_app_dag_node_invalidate_vv() {
+    let inner = AppDagNodeInner::new(1, 0, 5, Frontiers::new(), 1);
+    let mut node = AppDagNode::new(inner);
+
+    let vv1 = node.vv(|_| ImVersionVector::new());
+    assert_eq!(vv1.get(&1).copied(), Some(1));
+
+    // Cached: closure should NOT be called again.
+    let vv2 = node.vv(|_| panic!("should not be called — cached"));
+    assert_eq!(vv2.get(&1).copied(), Some(1));
+
+    node.invalidate_vv();
+
+    // After invalidate, closure IS called again and yields the same VV.
+    let vv3 = node.vv(|_| ImVersionVector::new());
+    assert_eq!(vv3.get(&1).copied(), Some(1));
+  }
 
   fn make_change(
     peer: PeerID,
@@ -907,7 +1154,7 @@ mod app_dag_tests {
     // consecutive, have the same deps-on-self semantics, and no successor.
     assert_eq!(dag.map.lock().unwrap().len(), 1);
     let node = dag.get(ID::new(1, 0)).unwrap();
-    assert_eq!(node.cnt, 0);
+    assert_eq!(node.counter, 0);
     assert_eq!(node.len, 5); // 2 + 3
     assert_eq!(node.lamport, 1);
     assert!(!node.has_succ);
@@ -1202,5 +1449,348 @@ mod app_dag_tests {
       node.inner.vv.get().unwrap(),
       dag.get(ID::new(2, 0)).unwrap().inner.vv.get().unwrap()
     ));
+  }
+
+  // ── LCA tests ────────────────────────────────────────────────────────────
+
+  #[test]
+  fn test_lca_same_peer_linear() {
+    let mut dag = AppDag::new();
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 2);
+    dag.handle_new_change(&c1, false);
+
+    // Same peer, different counters → linear, smaller counter is LCA.
+    let (lca, mode) = dag
+      .find_common_ancestor(ID::new(1, 0), ID::new(1, 1))
+      .unwrap();
+    assert_eq!(lca, Frontiers::from_id(ID::new(1, 0)));
+    assert_eq!(mode, DiffMode::Linear);
+  }
+
+  #[test]
+  fn test_lca_ancestor_descendant() {
+    let mut dag = AppDag::new();
+
+    // Peer 1: 0..2
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 2);
+    // Peer 2: 0..1, depends on 1@1
+    let c2 = make_change(2, 0, 2, Frontiers::from_id(ID::new(1, 1)), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+
+    // 1@1 is a direct ancestor of 2@0.
+    let (lca, mode) = dag
+      .find_common_ancestor(ID::new(1, 1), ID::new(2, 0))
+      .unwrap();
+    assert_eq!(lca, Frontiers::from_id(ID::new(1, 1)));
+    assert_eq!(mode, DiffMode::Linear);
+
+    // Symmetric.
+    let (lca2, mode2) = dag
+      .find_common_ancestor(ID::new(2, 0), ID::new(1, 1))
+      .unwrap();
+    assert_eq!(lca2, Frontiers::from_id(ID::new(1, 1)));
+    assert_eq!(mode2, DiffMode::Linear);
+  }
+
+  #[test]
+  fn test_lca_two_branches() {
+    let mut dag = AppDag::new();
+
+    // Build:
+    //   1@0..2 (lamport 1)
+    //        \
+    //         2@0..1 (lamport 2, deps 1@1)
+    //        /
+    //   1@2..3 (lamport 3, deps 1@1)
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 2);
+    let c2 = make_change(2, 0, 2, Frontiers::from_id(ID::new(1, 1)), 1);
+    let c3 = make_change(1, 2, 3, Frontiers::from_id(ID::new(1, 1)), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+    dag.handle_new_change(&c3, false);
+
+    // LCA of 2@0 and 1@2 should be 1@1 (the fork point).
+    let (lca, mode) = dag
+      .find_common_ancestor(ID::new(2, 0), ID::new(1, 2))
+      .unwrap();
+    assert_eq!(lca, Frontiers::from_id(ID::new(1, 1)));
+    assert_eq!(mode, DiffMode::Branch);
+  }
+
+  #[test]
+  fn test_lca_one_branch_is_ancestor_of_other() {
+    let mut dag = AppDag::new();
+
+    // Build:
+    //   1@0..2 (root)
+    //        \
+    //         2@0..1 (deps 1@1)
+    //              \
+    //               3@0..1 (deps 2@0)
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 2);
+    let c2 = make_change(2, 0, 2, Frontiers::from_id(ID::new(1, 1)), 1);
+    let c3 = make_change(3, 0, 3, Frontiers::from_id(ID::new(2, 0)), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+    dag.handle_new_change(&c3, false);
+
+    // 2@0 is ancestor of 3@0 → linear.
+    let (lca, mode) = dag
+      .find_common_ancestor(ID::new(2, 0), ID::new(3, 0))
+      .unwrap();
+    assert_eq!(lca, Frontiers::from_id(ID::new(2, 0)));
+    assert_eq!(mode, DiffMode::Linear);
+  }
+
+  #[test]
+  fn test_lca_merge_point() {
+    let mut dag = AppDag::new();
+
+    // Build a diamond:
+    //       1@0..1 (root)
+    //        /   \
+    //   2@0..1   3@0..1
+    //        \   /
+    //       4@0..1 (deps 2@0 and 3@0)
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 1);
+    let c2 = make_change(2, 0, 2, Frontiers::from_id(ID::new(1, 0)), 1);
+    let c3 = make_change(3, 0, 3, Frontiers::from_id(ID::new(1, 0)), 1);
+    let c4 = make_change(
+      4,
+      0,
+      4,
+      Frontiers::from(vec![ID::new(2, 0), ID::new(3, 0)]),
+      1,
+    );
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+    dag.handle_new_change(&c3, false);
+    dag.handle_new_change(&c4, false);
+
+    // LCA of 4@0 and 1@0 should be 1@0.
+    let (lca, mode) = dag
+      .find_common_ancestor(ID::new(4, 0), ID::new(1, 0))
+      .unwrap();
+    assert_eq!(lca, Frontiers::from_id(ID::new(1, 0)));
+    assert_eq!(mode, DiffMode::Linear);
+
+    // LCA of 2@0 and 3@0 should be 1@0.
+    let (lca, mode) = dag
+      .find_common_ancestor(ID::new(2, 0), ID::new(3, 0))
+      .unwrap();
+    assert_eq!(lca, Frontiers::from_id(ID::new(1, 0)));
+    assert_eq!(mode, DiffMode::Branch);
+  }
+
+  // ── remove_included_frontiers tests ──────────────────────────────────────
+
+  #[test]
+  fn test_remove_included_frontiers_basic() {
+    let mut dag = AppDag::new();
+
+    // Peer 1: 0..2, Peer 2: 0..1 (depends on 1@1)
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 2);
+    let c2 = make_change(2, 0, 2, Frontiers::from_id(ID::new(1, 1)), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+
+    // VV that includes both peers.
+    let mut vv = VersionVector::from_iter([ID::new(1, 1), ID::new(2, 0)]);
+    // Remove entries covered by deps = [1@1].
+    dag.remove_included_frontiers(&mut vv, &Frontiers::from_id(ID::new(1, 1)));
+    // peer 1 should be removed (vv[1] = 2 <= dep_vv[1] = 2).
+    assert!(vv.get(1).is_none());
+    // peer 2 should remain.
+    assert_eq!(vv.get(2).copied(), Some(1));
+  }
+
+  // ── travel_ancestors tests ───────────────────────────────────────────────
+
+  #[test]
+  fn test_travel_ancestors_linear() {
+    let mut dag = AppDag::new();
+
+    // Peer 1: 0..1 (deps empty) → 1..2 (deps 1@0)
+    // These merge into a single node 1@0..2.
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 1);
+    let c2 = make_change(1, 1, 2, Frontiers::from_id(ID::new(1, 0)), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+
+    let mut visited = Vec::new();
+    dag.travel_ancestors(ID::new(1, 1), |node| {
+      visited.push(node.id_start());
+      true
+    });
+
+    // ID@1 maps to the merged node 1@0..2, whose id_start is 1@0.
+    // The merged node has no deps (root), so only one visit.
+    assert_eq!(visited, vec![ID::new(1, 0)]);
+  }
+
+  #[test]
+  fn test_travel_ancestors_fork() {
+    let mut dag = AppDag::new();
+
+    //   1@0..1 (root)
+    //    /   \
+    // 2@0     3@0
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 1);
+    let c2 = make_change(2, 0, 2, Frontiers::from_id(ID::new(1, 0)), 1);
+    let c3 = make_change(3, 0, 3, Frontiers::from_id(ID::new(1, 0)), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+    dag.handle_new_change(&c3, false);
+
+    let mut visited = Vec::new();
+    dag.travel_ancestors(ID::new(2, 0), |node| {
+      visited.push(node.id_start());
+      true
+    });
+
+    // 2@0 → 1@0 (lamport 2 then 1).
+    assert_eq!(visited, vec![ID::new(2, 0), ID::new(1, 0)]);
+  }
+
+  #[test]
+  fn test_travel_ancestors_stops_early() {
+    let mut dag = AppDag::new();
+
+    // Peer 1: 0..1, then 1..2 — merges into single node 1@0..2.
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 1);
+    let c2 = make_change(1, 1, 2, Frontiers::from_id(ID::new(1, 0)), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+
+    let mut visited = Vec::new();
+    dag.travel_ancestors(ID::new(1, 1), |_node| {
+      visited.push(_node.id_start());
+      false // stop immediately after first node
+    });
+
+    // ID@1 maps to merged node 1@0..2.
+    assert_eq!(visited, vec![ID::new(1, 0)]);
+  }
+
+  #[test]
+  fn test_iter_lamport_order() {
+    let mut dag = AppDag::new();
+
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 1);
+    let c2 = make_change(2, 0, 3, Frontiers::from_id(ID::new(1, 0)), 1);
+    let c3 = make_change(3, 0, 2, Frontiers::from_id(ID::new(1, 0)), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+    dag.handle_new_change(&c3, false);
+
+    let ids: Vec<ID> = dag.iter().map(|n| n.id_start()).collect();
+    // Descending lamport: 3, 2, 1
+    assert_eq!(ids, vec![ID::new(2, 0), ID::new(3, 0), ID::new(1, 0)]);
+  }
+
+  #[test]
+  fn test_iter_causal_order() {
+    let mut dag = AppDag::new();
+
+    let c1 = make_change(2, 0, 3, Frontiers::new(), 1);
+    let c2 = make_change(1, 0, 1, Frontiers::new(), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+
+    let ids: Vec<ID> = dag.iter_causal().map(|n| n.id_start()).collect();
+    // BTreeMap order: peer 1 then peer 2
+    assert_eq!(ids, vec![ID::new(1, 0), ID::new(2, 0)]);
+  }
+
+  // ── shrink_frontiers tests ───────────────────────────────────────────────
+
+  #[test]
+  fn test_shrink_frontiers_empty() {
+    let dag = AppDag::new();
+    let result = dag.shrink_frontiers(&Frontiers::new());
+    assert!(result.is_empty());
+  }
+
+  #[test]
+  fn test_shrink_frontiers_single() {
+    let mut dag = AppDag::new();
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 1);
+    dag.handle_new_change(&c1, false);
+
+    let input = Frontiers::from_id(ID::new(1, 0));
+    let result = dag.shrink_frontiers(&input);
+    assert_eq!(result, input);
+  }
+
+  #[test]
+  fn test_shrink_frontiers_concurrent_pair() {
+    let mut dag = AppDag::new();
+
+    // Two concurrent branches with no ancestor relationship.
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 1);
+    let c2 = make_change(2, 0, 2, Frontiers::new(), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+
+    let input = Frontiers::from(vec![ID::new(1, 0), ID::new(2, 0)]);
+    let result = dag.shrink_frontiers(&input);
+    assert_eq!(result.len(), 2);
+    assert!(result.contains(&ID::new(1, 0)));
+    assert!(result.contains(&ID::new(2, 0)));
+  }
+
+  #[test]
+  fn test_shrink_frontiers_ancestor_removed() {
+    let mut dag = AppDag::new();
+
+    // 1@0 is ancestor of 2@0.
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 1);
+    let c2 = make_change(2, 0, 2, Frontiers::from_id(ID::new(1, 0)), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+
+    let input = Frontiers::from(vec![ID::new(1, 0), ID::new(2, 0)]);
+    let result = dag.shrink_frontiers(&input);
+    // 1@0 is an ancestor of 2@0, so it should be removed.
+    assert_eq!(result, Frontiers::from_id(ID::new(2, 0)));
+  }
+
+  #[test]
+  fn test_shrink_frontiers_three_way() {
+    let mut dag = AppDag::new();
+
+    //       1@0 (root)
+    //        / \
+    //   2@0     3@0
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 1);
+    let c2 = make_change(2, 0, 2, Frontiers::from_id(ID::new(1, 0)), 1);
+    let c3 = make_change(3, 0, 3, Frontiers::from_id(ID::new(1, 0)), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+    dag.handle_new_change(&c3, false);
+
+    let input = Frontiers::from(vec![ID::new(1, 0), ID::new(2, 0), ID::new(3, 0)]);
+    let result = dag.shrink_frontiers(&input);
+    // 1@0 is ancestor of both 2@0 and 3@0, so only the two leaves remain.
+    assert_eq!(result.len(), 2);
+    assert!(result.contains(&ID::new(2, 0)));
+    assert!(result.contains(&ID::new(3, 0)));
+  }
+
+  #[test]
+  fn test_shrink_frontiers_linear_history() {
+    let mut dag = AppDag::new();
+
+    // Peer 1: 0..1 → 1..2 (linear, same peer)
+    let c1 = make_change(1, 0, 1, Frontiers::new(), 1);
+    let c2 = make_change(1, 1, 2, Frontiers::from_id(ID::new(1, 0)), 1);
+    dag.handle_new_change(&c1, false);
+    dag.handle_new_change(&c2, false);
+
+    let input = Frontiers::from(vec![ID::new(1, 0), ID::new(1, 1)]);
+    let result = dag.shrink_frontiers(&input);
+    // On the same peer, the smaller counter is an ancestor of the larger one.
+    assert_eq!(result, Frontiers::from_id(ID::new(1, 1)));
   }
 }
