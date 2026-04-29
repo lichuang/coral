@@ -333,6 +333,45 @@
 
 ---
 
+## Phase 7.5（可选）: ChangeStore 持久化
+
+> ⚠️ **本阶段为可选扩展**，在所有核心 CRDT 容器和事件系统稳定后再实现。当前阶段 7 的 `ChangeStore` 为纯内存版，接口已预留持久化扩展点。
+
+**目标**: 将 `ChangeStore` 从纯内存存储扩展为支持 pluggable KV-store 后端的持久化层。
+**验收标准**: 文档重启后能从磁盘恢复完整状态，浅层快照只加载必要历史。
+
+- [ ] **7.5.1 存储抽象**
+  - [ ] 7.5.1.1 定义 `StorageAdapter` trait：`load(key) -> Option<Bytes>`、`save(key, value)`、`remove(key)`
+  - [ ] 7.5.1.2 定义 `MemoryStorageAdapter`（用于测试和默认回退）
+
+- [ ] **7.5.2 ChangesBlock 序列化**
+  - [ ] 7.5.2.1 实现 `ChangesBlock::encode() -> Vec<u8>`：将 `Changes` 编码为紧凑二进制
+  - [ ] 7.5.2.2 实现 `ChangesBlock::decode(bytes) -> ChangesBlock`：延迟反序列化
+  - [ ] 7.5.2.3 维护 `Both` 状态的一致性（编码缓存与解析数据同步）
+
+- [ ] **7.5.3 持久化 ChangeStore**
+  - [ ] 7.5.3.1 重构 `ChangeStore` 为 `ChangeStore<Adapter: StorageAdapter>`
+  - [ ] 7.5.3.2 实现 `ChangeStore::flush()`：将 dirty blocks 写入后端
+  - [ ] 7.5.3.3 实现 `ChangeStore::load_range(id_span)`：从后端按需加载 block
+  - [ ] 7.5.3.4 实现 `ChangeStore::shallow_snapshot(frontiers)`：只导出新 frontiers 所需的最小历史
+
+- [ ] **7.5.4 浅层快照（Shallow Snapshot）**
+  - [ ] 7.5.4.1 导出时保留完整 `DocState` + 最小 `OpLog`（未访问 block 保持 `Bytes`）
+  - [ ] 7.5.4.2 导入时延迟解析：block 首次被访问时才从 `Bytes` 反序列化为 `Changes`
+  - [ ] 7.5.4.3 测试百万级编辑历史：内存占用不随历史长度线性增长
+
+- [ ] **7.5.5 后端实现**
+  - [ ] 7.5.5.1 `FileSystemStorageAdapter`：基于目录 + 文件分块存储
+  - [ ] 7.5.5.2 `IndexedDbStorageAdapter`（WASM 目标）：基于 IndexedDB 的键值存储
+
+- [ ] **7.5.6 Phase 7.5 测试**
+  - [ ] 7.5.6.1 测试持久化 round-trip：编辑 → flush → 重启 → 状态一致
+  - [ ] 7.5.6.2 测试浅层快照：大型文档导入后内存占用 < 完整历史的 20%
+  - [ ] 7.5.6.3 测试 lazy loading：checkout 到历史版本时才触发 block 解析
+  - [ ] 7.5.6.4 运行 fmt、clippy、test，全部通过
+
+---
+
 ## Phase 8: 事务系统（Transaction）
 
 **目标**: 实现本地编辑的事务缓冲、提交和事件生成。
@@ -1104,6 +1143,7 @@
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
 | Phase 6 | Change 与 Op 定义 | 29 | 26 | 3 | 89.7% |
 | Phase 7 | OpLog（操作日志核心） | 28 | 0 | 28 | 0.0% |
+| Phase 7.5 | ChangeStore 持久化（可选） | 18 | 0 | 18 | 0.0% |
 | Phase 8 | 事务系统（Transaction） | 17 | 0 | 17 | 0.0% |
 | Phase 9 | Counter CRDT | 18 | 0 | 18 | 0.0% |
 | Phase 10 | Map CRDT（LWW Register） | 29 | 0 | 29 | 0.0% |
@@ -1121,7 +1161,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **669** | **140** | **529** | **20.9%** |
+| **合计** | | **687** | **140** | **547** | **20.4%** |
 
 ### 关键已完成的里程碑
 

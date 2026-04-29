@@ -154,6 +154,16 @@ The following Loro features are **not yet implemented** in Coral. The table belo
 | Multi-threading (Arc<Mutex>, etc.) | Arc/Mutex wrappers not yet added | Full Arc/Mutex + loom testing |
 | Event subscription system (Observer/Subscription) | Subscription system not implemented; only manual diff available | Full subscription / observer system |
 
+### ChangeStore: In-Memory Only (For Now)
+
+Coral's `ChangeStore` (Phase 7) is deliberately implemented as an **in-memory-only** structure. The reasons are:
+
+1. **Algorithmic correctness first** — persistence introduces I/O, async boundaries, and error-recovery complexity that distracts from getting the CRDT core right.
+2. **Interface compatibility** — the `ChangeStore` API (`insert_change`, `get_change`, `iter_changes`) is designed so that a future KV-store backend can be swapped in without touching `OpLog` or `DocState`.
+3. **Shallow-snapshot readiness** — the `ChangesBlock` design (holding either parsed `Changes`, raw `Bytes`, or `Both`) is kept structurally aligned with Loro so that lazy loading and shallow snapshots can be added later.
+
+A pluggable persistence layer (IndexedDB, RocksDB, etc.) is on the long-term roadmap but **explicitly deferred** until all CRDT containers and the event system are stable.
+
 **Every design decision must keep the door open for the full Loro feature to land later with minimal refactoring.**
 
 ---
