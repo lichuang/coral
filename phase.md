@@ -277,7 +277,7 @@
 
 - [x] **6.4 Change**
   - [x] 6.4.1 定义 `Change<O = Op> { id: ID, lamport: Lamport, deps: Frontiers, timestamp: Timestamp, ops: RleVec<[O; 1]> }`
-  - [ ] 6.4.2 为 `Change` 实现 `DagNode`、`HasId`、`HasCounter`、`HasLamport`、`HasLength`、`Sliceable`；**缺少** `DagNode` 等 trait 实现
+  - [x] 6.4.2 为 `Change` 实现 `DagNode`、`HasId`、`HasCounter`、`HasLamport`、`HasLength`、`Sliceable`
   - [x] 6.4.3 实现 `Change::ops()` / `deps()` / `peer()` / `lamport()` / `timestamp()` / `id()`
   - [x] 6.4.4 实现 `Change::slice(from, to)`：按原子 op 偏移分割 Change（包括分割 ops）
   - [x] 6.4.5 实现 `Change::can_merge_right(other, merge_interval)`：判断两个 Change 是否可合并
@@ -1102,7 +1102,7 @@
 | Phase 3 | VersionVector 与 Frontiers | 28 | 25 | 3 | 89.3% |
 | Phase 4 | DAG（因果图） | 24 | 24 | 0 | 100.0% |
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
-| Phase 6 | Change 与 Op 定义 | 29 | 25 | 4 | 86.2% |
+| Phase 6 | Change 与 Op 定义 | 29 | 26 | 3 | 89.7% |
 | Phase 7 | OpLog（操作日志核心） | 28 | 0 | 28 | 0.0% |
 | Phase 8 | 事务系统（Transaction） | 17 | 0 | 17 | 0.0% |
 | Phase 9 | Counter CRDT | 18 | 0 | 18 | 0.0% |
@@ -1121,7 +1121,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **669** | **139** | **530** | **20.8%** |
+| **合计** | | **669** | **140** | **529** | **20.9%** |
 
 ### 关键已完成的里程碑
 

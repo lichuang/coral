@@ -175,6 +175,24 @@ impl<O: Mergable + HasLength + HasIndex<Int = Counter> + Sliceable + Debug> DagN
   }
 }
 
+impl<O> crate::core::dag::HasId for Change<O> {
+  fn id(&self) -> ID {
+    self.id
+  }
+}
+
+impl<O> crate::core::dag::HasCounter for Change<O> {
+  fn counter(&self) -> Counter {
+    self.id.counter
+  }
+}
+
+impl<O> crate::core::dag::HasLamport for Change<O> {
+  fn lamport(&self) -> Lamport {
+    self.lamport
+  }
+}
+
 // ── RLE traits for Change ──────────────────────────────────────────────────
 
 impl<O: Mergable + HasLength + HasIndex + Debug> HasLength for Change<O> {

@@ -5,8 +5,26 @@
 //! identity (`id_start`) so that history can be traversed, merged, and diffed.
 
 use crate::rle::Sliceable;
-use crate::types::{ID, Lamport};
+use crate::types::{Counter, ID, Lamport};
 use crate::version::{Frontiers, VersionVector};
+
+/// Types that carry an [`ID`].
+#[allow(dead_code)]
+pub trait HasId {
+  fn id(&self) -> ID;
+}
+
+/// Types that carry a start [`Counter`].
+#[allow(dead_code)]
+pub trait HasCounter {
+  fn counter(&self) -> Counter;
+}
+
+/// Types that carry a [`Lamport`] timestamp.
+#[allow(dead_code)]
+pub trait HasLamport {
+  fn lamport(&self) -> Lamport;
+}
 
 /// A node in the causal directed acyclic graph.
 ///
