@@ -297,15 +297,15 @@
 **目标**: 实现历史存储中心，整合 DAG、ChangeStore、PendingChanges。
 **验收标准**: 能本地插入变更、导入远程变更、处理乱序依赖、迭代 ops。
 
-- [ ] **7.1 ChangeStore（内存版）**
-  - [ ] 7.1.1 定义 `ChangeStore`：
-    - `inner: ChangeStoreInner`（`BTreeMap<ID, ChangesBlock>`）
+- [x] **7.1 ChangeStore（内存版）**
+  - [x] 7.1.1 定义 `ChangeStore`：
+    - `blocks: BTreeMap<ID, ChangesBlock>`
     - `arena: SharedArena`
-  - [ ] 7.1.2 定义 `ChangesBlock`：包含 peer 的 counter 范围，内容可为 `Changes(Vec<Change>)`、`Bytes(Vec<u8>)` 或 `Both`
-  - [ ] 7.1.3 实现 `insert_change(change, is_local)`：尝试合并到最后一个 block
-  - [ ] 7.1.4 实现 `get_change(id)` → `Option<Change>`
-  - [ ] 7.1.5 实现 `iter_changes(id_span)` → 迭代器
-  - [ ] 7.1.6 实现 `get_last_dag_nodes_for_peer(peer)` → 供 AppDag 惰性加载
+  - [x] 7.1.2 定义 `ChangesBlock`：包含 peer 的 counter 范围，内容可为 `Changes(Vec<Change>)`、`Bytes(Vec<u8>)` 或 `Both`
+  - [x] 7.1.3 实现 `insert_change(change, is_local)`：尝试合并到最后一个 block
+  - [x] 7.1.4 实现 `get_change(id)` → `Option<Change>`
+  - [x] 7.1.5 实现 `iter_changes(id_span)` → 迭代器
+  - [x] 7.1.6 实现 `get_last_block_for_peer(peer)` → 供 AppDag 惰性加载
 
 - [ ] **7.2 PendingChanges**
   - [ ] 7.2.1 定义 `PendingChanges`：存储依赖未满足的变更队列
@@ -1142,7 +1142,7 @@
 | Phase 4 | DAG（因果图） | 24 | 24 | 0 | 100.0% |
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
 | Phase 6 | Change 与 Op 定义 | 29 | 26 | 3 | 89.7% |
-| Phase 7 | OpLog（操作日志核心） | 28 | 0 | 28 | 0.0% |
+| Phase 7 | OpLog（操作日志核心） | 28 | 6 | 22 | 21.4% |
 | Phase 7.5 | ChangeStore 持久化（可选） | 18 | 0 | 18 | 0.0% |
 | Phase 8 | 事务系统（Transaction） | 17 | 0 | 17 | 0.0% |
 | Phase 9 | Counter CRDT | 18 | 0 | 18 | 0.0% |
@@ -1161,7 +1161,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **687** | **140** | **547** | **20.4%** |
+| **合计** | | **687** | **146** | **541** | **21.3%** |
 
 ### 关键已完成的里程碑
 
