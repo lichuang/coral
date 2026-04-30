@@ -307,10 +307,11 @@
   - [x] 7.1.5 实现 `iter_changes(id_span)` → 迭代器
   - [x] 7.1.6 实现 `get_last_block_for_peer(peer)` → 供 AppDag 惰性加载
 
-- [ ] **7.2 PendingChanges**
-  - [ ] 7.2.1 定义 `PendingChanges`：存储依赖未满足的变更队列
-  - [ ] 7.2.2 实现 `push(change)`：尝试应用，失败则入队
+- [x] **7.2 PendingChanges**
+  - [x] 7.2.1 定义 `PendingChanges`：按 missing dep 索引的 `FxHashMap<PeerID, BTreeMap<Counter, Vec<Change>>>`
+  - [x] 7.2.2 实现 `push(missing_dep, change)`：以第一个缺失依赖为 key 入队
   - [ ] 7.2.3 实现 `try_apply_pending(oplog)`：每次新变更导入后尝试应用挂起的变更
+    <!-- NOTE: `try_apply_pending` 的核心循环在 `OpLog` 中实现，与 Loro 对齐。将在 7.3 OpLog 组装时完成。 -->
 
 - [ ] **7.3 OpLog 组装**
   - [ ] 7.3.1 定义 `OpLog { dag: AppDag, arena: SharedArena, change_store: ChangeStore, pending_changes: PendingChanges }`
@@ -1142,7 +1143,7 @@
 | Phase 4 | DAG（因果图） | 24 | 24 | 0 | 100.0% |
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
 | Phase 6 | Change 与 Op 定义 | 29 | 26 | 3 | 89.7% |
-| Phase 7 | OpLog（操作日志核心） | 28 | 6 | 22 | 21.4% |
+| Phase 7 | OpLog（操作日志核心） | 28 | 8 | 20 | 28.6% |
 | Phase 7.5 | ChangeStore 持久化（可选） | 18 | 0 | 18 | 0.0% |
 | Phase 8 | 事务系统（Transaction） | 17 | 0 | 17 | 0.0% |
 | Phase 9 | Counter CRDT | 18 | 0 | 18 | 0.0% |
@@ -1161,7 +1162,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **687** | **146** | **541** | **21.3%** |
+| **合计** | | **687** | **148** | **539** | **21.5%** |
 
 ### 关键已完成的里程碑
 
