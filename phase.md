@@ -323,10 +323,10 @@
   - [x] 7.3.8 实现 `iter_ops(id_span)` → 迭代 `RichOp`
   - [x] 7.3.9 实现 `get_change_at(id)` → `Option<Change>`
 
-- [ ] **7.4 Phase 7 测试**
-  - [ ] 7.4.1 测试线性历史插入：10 个 Change 后 VV 和 Frontiers 正确
-  - [ ] 7.4.2 测试分叉历史：peer A 和 peer B 各插入，merge 后 Frontiers 包含两个 ID
-  - [ ] 7.4.3 测试乱序导入：先导入依赖方的变更，再导入被依赖方的变更
+- [x] **7.4 Phase 7 测试**
+  - [x] 7.4.1 测试线性历史插入：10 个 Change 后 VV 和 Frontiers 正确
+  - [x] 7.4.2 测试分叉历史：peer A 和 peer B 各插入，merge 后 Frontiers 包含两个 ID
+  - [x] 7.4.3 测试乱序导入：先导入依赖方的变更，再导入被依赖方的变更
   - [ ] 7.4.4 测试重复导入：同一 Change 导入两次，状态不变
   - [ ] 7.4.5 测试 `iter_ops` 的正确性（counter 连续性、RichOp 字段完整）
   - [ ] 7.4.6 运行 fmt、clippy、test，全部通过
@@ -1142,7 +1142,7 @@
 | Phase 4 | DAG（因果图） | 24 | 24 | 0 | 100.0% |
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
 | Phase 6 | Change 与 Op 定义 | 29 | 26 | 3 | 89.7% |
-| Phase 7 | OpLog（操作日志核心） | 28 | 17 | 11 | 60.7% |
+| Phase 7 | OpLog（操作日志核心） | 28 | 20 | 8 | 71.4% |
 | Phase 7.5 | ChangeStore 持久化（可选） | 18 | 0 | 18 | 0.0% |
 | Phase 8 | 事务系统（Transaction） | 17 | 0 | 17 | 0.0% |
 | Phase 9 | Counter CRDT | 18 | 0 | 18 | 0.0% |
@@ -1161,7 +1161,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **687** | **157** | **530** | **22.9%** |
+| **合计** | | **687** | **160** | **527** | **23.3%** |
 
 ### 关键已完成的里程碑
 

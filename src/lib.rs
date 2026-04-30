@@ -6,3 +6,6 @@ pub mod oplog;
 pub mod rle;
 pub mod types;
 pub mod version;
+
+#[cfg(test)]
+mod tests;

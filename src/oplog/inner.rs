@@ -159,6 +159,11 @@ impl OpLog {
     self.dag.frontiers()
   }
 
+  /// Number of changes currently in the pending queue.
+  pub fn pending_changes_len(&self) -> usize {
+    self.pending_changes.len()
+  }
+
   /// Iterate over [`RichOp`]s in the given span.
   pub fn iter_ops(&self, id_span: IdSpan) -> impl Iterator<Item = RichOp<'_>> + '_ {
     let span_start = id_span.counter.start;

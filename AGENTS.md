@@ -241,7 +241,9 @@ src/
 ### Integration Test Placement
 
 ```
-tests/
+src/tests/
+  mod.rs                 # Declares test submodules
+  oplog.rs               # OpLog pipeline: linear, concurrent, out-of-order
   crdt_properties.rs     # proptest: random operation sequences, check invariants
   merge_sync.rs          # Two-document merge, concurrent conflicts
   checkout.rs            # Version rollback and time travel
@@ -316,7 +318,7 @@ cargo test
 - [ ] **Clippy Check must pass with zero warnings**. The `-D warnings` flag treats all warnings as errors. Fix or explicitly allow with a documented reason.
 - [ ] **All tests must pass**. If a test fails, fix the code or the test. Do not delete or disable existing tests to make them pass.
 - [ ] **Run all three in sequence** — not just the one you think is relevant. A formatting change can break tests, and a logic fix can introduce new clippy warnings.
-- [ ] **Check both `lib.rs` and integration tests in `tests/`**. If you added a new test file, make sure it is picked up by `cargo test`.
+- [ ] **Check both `lib.rs` and integration tests in `src/tests/`**. If you added a new test file, make sure it is declared in `src/tests/mod.rs` and picked up by `cargo test`.
 
 ### When Checks Can Be Deferred
 
