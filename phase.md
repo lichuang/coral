@@ -310,19 +310,18 @@
 - [x] **7.2 PendingChanges**
   - [x] 7.2.1 定义 `PendingChanges`：按 missing dep 索引的 `FxHashMap<PeerID, BTreeMap<Counter, Vec<Change>>>`
   - [x] 7.2.2 实现 `push(missing_dep, change)`：以第一个缺失依赖为 key 入队
-  - [ ] 7.2.3 实现 `try_apply_pending(oplog)`：每次新变更导入后尝试应用挂起的变更
-    <!-- NOTE: `try_apply_pending` 的核心循环在 `OpLog` 中实现，与 Loro 对齐。将在 7.3 OpLog 组装时完成。 -->
+  - [x] 7.2.3 实现 `try_apply_pending(oplog)`：每次新变更导入后尝试应用挂起的变更
 
-- [ ] **7.3 OpLog 组装**
-  - [ ] 7.3.1 定义 `OpLog { dag: AppDag, arena: SharedArena, change_store: ChangeStore, pending_changes: PendingChanges }`
-  - [ ] 7.3.2 实现 `OpLog::new()`
-  - [ ] 7.3.3 实现 `insert_new_change(change, from_local)`：唯一入口，更新 DAG、ChangeStore、arena 父子链接
-  - [ ] 7.3.4 实现 `import_local_change(change)`：导入本地事务产生的变更
-  - [ ] 7.3.5 实现 `import_remote_change(change)`：导入远程变更（处理 pending）
-  - [ ] 7.3.6 实现 `next_id(peer)` → 该 peer 的下一个可用 counter
-  - [ ] 7.3.7 实现 `vv()` → 当前 VV，`frontiers()` → 当前 Frontiers
-  - [ ] 7.3.8 实现 `iter_ops(id_span)` → 迭代 `RichOp`
-  - [ ] 7.3.9 实现 `get_change_at(id)` → `Option<Change>`
+- [x] **7.3 OpLog 组装**
+  - [x] 7.3.1 定义 `OpLog { dag: AppDag, arena: SharedArena, change_store: ChangeStore, pending_changes: PendingChanges }`
+  - [x] 7.3.2 实现 `OpLog::new()`
+  - [x] 7.3.3 实现 `insert_new_change(change, from_local)`：唯一入口，更新 DAG、ChangeStore
+  - [x] 7.3.4 实现 `import_local_change(change)`：导入本地事务产生的变更
+  - [x] 7.3.5 实现 `import_remote_change(change)`：导入远程变更（处理 pending）
+  - [x] 7.3.6 实现 `next_id(peer)` → 该 peer 的下一个可用 counter
+  - [x] 7.3.7 实现 `vv()` → 当前 VV，`frontiers()` → 当前 Frontiers
+  - [x] 7.3.8 实现 `iter_ops(id_span)` → 迭代 `RichOp`
+  - [x] 7.3.9 实现 `get_change_at(id)` → `Option<Change>`
 
 - [ ] **7.4 Phase 7 测试**
   - [ ] 7.4.1 测试线性历史插入：10 个 Change 后 VV 和 Frontiers 正确
@@ -1143,7 +1142,7 @@
 | Phase 4 | DAG（因果图） | 24 | 24 | 0 | 100.0% |
 | Phase 5 | InnerArena（容器索引系统） | 25 | 13 | 12 | 52.0% |
 | Phase 6 | Change 与 Op 定义 | 29 | 26 | 3 | 89.7% |
-| Phase 7 | OpLog（操作日志核心） | 28 | 8 | 20 | 28.6% |
+| Phase 7 | OpLog（操作日志核心） | 28 | 17 | 11 | 60.7% |
 | Phase 7.5 | ChangeStore 持久化（可选） | 18 | 0 | 18 | 0.0% |
 | Phase 8 | 事务系统（Transaction） | 17 | 0 | 17 | 0.0% |
 | Phase 9 | Counter CRDT | 18 | 0 | 18 | 0.0% |
@@ -1162,7 +1161,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **687** | **148** | **539** | **21.5%** |
+| **合计** | | **687** | **157** | **530** | **22.9%** |
 
 ### 关键已完成的里程碑
 

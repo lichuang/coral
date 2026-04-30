@@ -205,16 +205,18 @@ impl<
     let mut blocks: Vec<_> = Vec::new();
 
     // Check the block just before start_key — it might straddle span_start.
+    let mut first_counter: Option<Counter> = None;
     if let Some((_, block)) = self.blocks.range(..=start_key).next_back()
       && block.peer == peer
       && block.end_counter() > span_start
     {
+      first_counter = Some(block.counter);
       blocks.push(block);
     }
 
     // Then collect all blocks whose key lies inside [span_start, span_end).
     for (_, block) in self.blocks.range(start_key..ID::new(peer, span_end)) {
-      if block.peer == peer {
+      if block.peer == peer && first_counter != Some(block.counter) {
         blocks.push(block);
       }
     }
