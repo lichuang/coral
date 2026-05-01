@@ -10,6 +10,7 @@
 use crate::container::list::{InnerListOp, ListOp};
 use crate::container::map::MapSet;
 use crate::container::tree::TreeOp;
+use crate::memory::SharedArena;
 use crate::rle::{HasLength, Mergable, Sliceable};
 use std::sync::Arc;
 
@@ -137,6 +138,26 @@ impl Mergable for RawOpContent<'_> {
     match (self, other) {
       (RawOpContent::List(a), RawOpContent::List(b)) => a.merge(b, conf),
       _ => unreachable!(),
+    }
+  }
+}
+
+impl<'a> RawOpContent<'a> {
+  /// Convert this raw transport content into arena-resolved [`OpContent`].
+  ///
+  /// # Panics
+  ///
+  /// Panics with `todo!()` for [`RawOpContent::List`] variants until
+  /// List/Text arena allocation is implemented in Phase 6.
+  pub fn to_op_content(self, _arena: &SharedArena) -> OpContent {
+    match self {
+      RawOpContent::Counter(v) => OpContent::Counter(v),
+      RawOpContent::Map(set) => OpContent::Map(set),
+      RawOpContent::Tree(op) => OpContent::Tree(op),
+      RawOpContent::List(_list_op) => {
+        // TODO(Phase 6): List/Text arena allocation (InnerListOp conversion)
+        todo!("List op arena allocation not yet implemented")
+      }
     }
   }
 }

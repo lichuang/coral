@@ -377,9 +377,9 @@
 **目标**: 实现本地编辑的事务缓冲、提交和事件生成。
 **验收标准**: 用户能开启事务、应用多个 op、提交为一个 Change，并触发事件。
 
-- [ ] **8.1 Transaction 结构**
-  - [ ] 8.1.1 定义 `Transaction { peer, start_counter, next_counter, start_lamport, next_lamport, frontiers, local_ops, arena, finished }`
-  - [ ] 8.1.2 定义 `EventHint` 枚举：
+- [x] **8.1 Transaction 结构**
+  - [x] 8.1.1 定义 `Transaction { peer, start_counter, next_counter, start_lamport, next_lamport, frontiers, local_ops, arena, finished }`
+  - [x] 8.1.2 定义 `EventHint` 枚举：
     - `InsertText { pos, event_len, unicode_len, styles }`
     - `Map { key, value }`
     - `Tree { .. }`
