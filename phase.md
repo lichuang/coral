@@ -417,18 +417,18 @@
 **目标**: 实现最简单的 CRDT——PN-Counter。
 **验收标准**: 并发增量操作可正确合并，结果是代数和。
 
-- [ ] **9.1 CounterState**
-  - [ ] 9.1.1 定义 `CounterState { idx: ContainerIdx, value: f64 }`
-  - [ ] 9.1.2 实现 `ContainerState` trait for `CounterState`：
+- [x] **9.1 CounterState**
+  - [x] 9.1.1 定义 `CounterState { idx: ContainerIdx, value: f64 }`
+  - [x] 9.1.2 实现 `ContainerState` trait for `CounterState`：
     - `apply_local_op`：接收 `RawOpContent::Counter(diff)`，累加到 `value`
     - `apply_diff_and_convert`：接收 `InternalDiff::Counter(diff)`，累加并返回外部 diff
     - `to_diff`：返回 `InternalDiff::Counter(self.value)`（从空状态恢复）
     - `get_value`：返回 `LoroValue::Double(self.value)`
     - `fork`：克隆
-  - [ ] 9.1.3 `is_state_empty()` 返回 `false`
+  - [x] 9.1.3 `is_state_empty()` 返回 `false`
 
-- [ ] **9.2 Counter 操作定义**
-  - [ ] 9.2.1 在 `RawOpContent` 中添加 `Counter(f64)`
+- [x] **9.2 Counter 操作定义**
+  - [x] 9.2.1 在 `RawOpContent` 中添加 `Counter(f64)`
   - [x] 9.2.2 在 `OpContent` 中添加 `Counter(f64)`
 
 - [ ] **9.3 CounterHandler**
@@ -437,12 +437,12 @@
   - [ ] 9.3.3 实现 `get_value() -> f64`
 
 - [ ] **9.4 Phase 9 测试**
-  - [ ] 9.4.1 测试单文档 Counter 累加：`0 → +3 → +(-2) → 1`
-  - [ ] 9.4.2 测试 idempotency：同一 op 应用两次，结果不变
-  - [ ] 9.4.3 测试并发合并：A +3，B -2，合并后 = +1
+  - [x] 9.4.1 测试单文档 Counter 累加：`0 → +3 → +(-2) → 1`
+  - [ ] 9.4.2 测试 idempotency：同一 op 应用两次，结果不变（OpLog 层面去重，待 Handler 层测试）
+  - [x] 9.4.3 测试并发合并：A +3，B -2，合并后 = +1
   - [ ] 9.4.4 测试三文档并发合并：A +1，B +2，C -3，最终结果 = 0
-  - [ ] 9.4.5 测试 `to_diff` 和 `apply_diff` 互为逆操作
-  - [ ] 9.4.6 运行 fmt、clippy、test，全部通过
+  - [x] 9.4.5 测试 `to_diff` 和 `apply_diff` 互为逆操作
+  - [x] 9.4.6 运行 fmt、clippy、test，全部通过
 
 ---
 
@@ -1145,7 +1145,7 @@
 | Phase 7 | OpLog（操作日志核心） | 28 | 20 | 8 | 71.4% |
 | Phase 7.5 | ChangeStore 持久化（可选） | 18 | 0 | 18 | 0.0% |
 | Phase 8 | 事务系统（Transaction） | 17 | 16 | 1 | 94.1% |
-| Phase 9 | Counter CRDT | 18 | 1 | 17 | 5.6% |
+| Phase 9 | Counter CRDT | 18 | 9 | 9 | 50.0% |
 | Phase 10 | Map CRDT（LWW Register） | 29 | 0 | 29 | 0.0% |
 | Phase 11 | List CRDT（RGA） | 30 | 0 | 30 | 0.0% |
 | Phase 12 | MovableList CRDT | 29 | 0 | 29 | 0.0% |
@@ -1161,7 +1161,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **687** | **178** | **509** | **25.9%** |
+| **合计** | | **687** | **186** | **501** | **27.1%** |
 
 ### 关键已完成的里程碑
 
