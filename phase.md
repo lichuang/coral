@@ -398,17 +398,17 @@
     - 提交 `DocState`
     - 运行 `on_commit` 回调
 
-- [ ] **8.3 事件生成**
-  - [ ] 8.3.1 实现 `change_to_diff(change, event_hints)`：利用 EventHint 快速生成 `TxnContainerDiff`
-  - [ ] 8.3.2 定义 `TxnContainerDiff`：容器级别的差异表示
+- [x] **8.3 事件生成**
+  - [x] 8.3.1 实现 `change_to_diff(change, event_hints)`：利用 EventHint 快速生成 `TxnContainerDiff`
+  - [x] 8.3.2 定义 `TxnContainerDiff`：容器级别的差异表示
 
-- [ ] **8.4 Phase 8 测试**
-  - [ ] 8.4.1 测试空事务提交（不产生 Change）
-  - [ ] 8.4.2 测试单 op 事务提交（counter、lamport、deps 正确）
-  - [ ] 8.4.3 测试多 op 事务提交（ops 的 counter 连续，Change 的 len 正确）
+- [x] **8.4 Phase 8 测试**
+  - [x] 8.4.1 测试空事务提交（不产生 Change）
+  - [x] 8.4.2 测试单 op 事务提交（counter、lamport、deps 正确）
+  - [x] 8.4.3 测试多 op 事务提交（ops 的 counter 连续，Change 的 len 正确）
   - [ ] 8.4.4 测试事务中应用 op 后 DocState 立即更新
-  - [ ] 8.4.5 测试两个连续事务的 deps 关系（第二个 deps 指向第一个）
-  - [ ] 8.4.6 运行 fmt、clippy、test，全部通过
+  - [x] 8.4.5 测试两个连续事务的 deps 关系（第二个 deps 指向第一个）
+  - [x] 8.4.6 运行 fmt、clippy、test，全部通过
 
 ---
 
@@ -1144,7 +1144,7 @@
 | Phase 6 | Change 与 Op 定义 | 29 | 26 | 3 | 89.7% |
 | Phase 7 | OpLog（操作日志核心） | 28 | 20 | 8 | 71.4% |
 | Phase 7.5 | ChangeStore 持久化（可选） | 18 | 0 | 18 | 0.0% |
-| Phase 8 | 事务系统（Transaction） | 17 | 7 | 10 | 41.2% |
+| Phase 8 | 事务系统（Transaction） | 17 | 16 | 1 | 94.1% |
 | Phase 9 | Counter CRDT | 18 | 1 | 17 | 5.6% |
 | Phase 10 | Map CRDT（LWW Register） | 29 | 0 | 29 | 0.0% |
 | Phase 11 | List CRDT（RGA） | 30 | 0 | 30 | 0.0% |
@@ -1161,13 +1161,13 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **687** | **168** | **519** | **24.5%** |
+| **合计** | | **687** | **178** | **509** | **25.9%** |
 
 ### 关键已完成的里程碑
 
 - ✅ **Phase 2 完整完成**：RLE 基础设施（`RleVec`、`HasLength`、`Sliceable`、`Mergable`）与 Loro 的 `loro-rle` 设计对齐
 - ✅ **Phase 3 基本完成**：`VersionVector`、`Frontiers`（三态枚举 `None`/`ID`/`Map`）、`IdSpan`、`CounterSpan` 均已实现并通过测试
-- ✅ **Phase 1 部分完成**：基础类型 `ID`、`ContainerID`、`ContainerType`、`CoralValue` 结构正确，但命名（`CoralValue`→`LoroValue`）、部分方法（`Display`、`default_value`、`name`）、以及缺失类型（`IdLp`、`IdFull`、`TreeID`、`InternalString`、`CoralError`）需要后续补充
+- ✅ **Phase 8 基本完成**：Transaction 结构、事务生命周期（new/apply_local_op/commit）、事件生成（`change_to_diff`、`TxnContainerDiff`、`ContainerDiff`）均已完成并通过测试；仅剩 8.4.4（DocState 立即更新）待 Phase 9+ 填充
 
 ### 需要重构以与 Loro 对齐的项目
 
