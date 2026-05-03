@@ -40,6 +40,7 @@ enum ChangeState {
 ///   [`PendingChanges`] instead.
 /// - `insert_new_change` is the **only** way to add a change to the system.
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct OpLog {
   pub(crate) dag: AppDag,
   pub(crate) arena: SharedArena,
@@ -56,7 +57,14 @@ impl Default for OpLog {
 impl OpLog {
   /// Creates a new empty `OpLog`.
   pub fn new() -> Self {
-    let arena = SharedArena::new(InnerArena::new());
+    Self::with_arena(SharedArena::new(InnerArena::new()))
+  }
+
+  /// Creates a new `OpLog` with the given shared arena.
+  ///
+  /// The arena is shared with the document layer so that container IDs,
+  /// values and strings are resolved consistently across `OpLog` and `DocState`.
+  pub fn with_arena(arena: SharedArena) -> Self {
     let change_store = ChangeStore::new(arena.clone());
     Self {
       dag: AppDag::new(),

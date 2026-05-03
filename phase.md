@@ -385,14 +385,14 @@
     - `Tree { .. }`
     - `List { .. }`
 
-- [ ] **8.2 事务生命周期**
-  - [ ] 8.2.1 实现 `Transaction::new(doc, origin)`：锁定 OpLog 和 DocState，分配 counter/lamport
-  - [ ] 8.2.2 实现 `apply_local_op(container, content, event_hint, doc)`：
+- [x] **8.2 事务生命周期**
+  - [x] 8.2.1 实现 `Transaction::new(doc, origin)`：锁定 OpLog 和 DocState，分配 counter/lamport
+  - [x] 8.2.2 实现 `apply_local_op(container, content, event_hint, doc)`：
     - 将 `RawOpContent` 转为 `Op`（通过 InnerArena 分配 slice/字符串）
     - 应用 op 到 `DocState`
     - 更新 DAG 版本追踪
     - 记录 EventHint
-  - [ ] 8.2.3 实现 `commit()` / `_commit()`：
+  - [x] 8.2.3 实现 `commit()` / `_commit()`：
     - 构建 `Change`
     - 导入 `OpLog`
     - 提交 `DocState`
@@ -1144,8 +1144,8 @@
 | Phase 6 | Change 与 Op 定义 | 29 | 26 | 3 | 89.7% |
 | Phase 7 | OpLog（操作日志核心） | 28 | 20 | 8 | 71.4% |
 | Phase 7.5 | ChangeStore 持久化（可选） | 18 | 0 | 18 | 0.0% |
-| Phase 8 | 事务系统（Transaction） | 17 | 0 | 17 | 0.0% |
-| Phase 9 | Counter CRDT | 18 | 0 | 18 | 0.0% |
+| Phase 8 | 事务系统（Transaction） | 17 | 7 | 10 | 41.2% |
+| Phase 9 | Counter CRDT | 18 | 1 | 17 | 5.6% |
 | Phase 10 | Map CRDT（LWW Register） | 29 | 0 | 29 | 0.0% |
 | Phase 11 | List CRDT（RGA） | 30 | 0 | 30 | 0.0% |
 | Phase 12 | MovableList CRDT | 29 | 0 | 29 | 0.0% |
@@ -1161,7 +1161,7 @@
 | Phase 22 | UndoManager | 24 | 0 | 24 | 0.0% |
 | Phase 23 | 属性测试与压力测试 | 21 | 0 | 21 | 0.0% |
 | Phase 24 | 性能优化与完善 | 27 | 0 | 27 | 0.0% |
-| **合计** | | **687** | **160** | **527** | **23.3%** |
+| **合计** | | **687** | **168** | **519** | **24.5%** |
 
 ### 关键已完成的里程碑
 

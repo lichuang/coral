@@ -2,11 +2,11 @@
 
 use crate::core::change::Change;
 use crate::core::container::ContainerIdx;
+use crate::doc::CoralDoc;
 use crate::memory::arena::SharedArena;
 use crate::op::{Op, OpContent, RawOpContent};
-use crate::oplog::OpLog;
 use crate::rle::{HasLength, RleVec};
-use crate::types::{Counter, Lamport, PeerID, Timestamp};
+use crate::types::{Counter, ID, Lamport, PeerID, Timestamp};
 use crate::version::Frontiers;
 
 use super::EventHint;
@@ -15,12 +15,14 @@ use super::EventHint;
 ///
 /// # Lifecycle
 ///
-/// 1. **Create** — [`Transaction::new`] allocates counter/lamport range.
+/// 1. **Create** — [`Transaction::new`] locks the doc and allocates
+///    counter/lamport range.
 /// 2. **Apply ops** — [`apply_local_op`](Transaction::apply_local_op)
-///    (or [`add_op`](Transaction::add_op)) buffers operations.
-/// 3. **Commit** — [`commit`](Transaction::commit) builds a [`Change`] and
-///    imports it into the [`OpLog`].
-#[derive(Debug)]
+///    converts raw content, applies it to [`DocState`](crate::doc::DocState),
+///    and buffers the op.
+/// 3. **Commit** — [`commit`](Transaction::commit) builds a [`Change`],
+///    imports it into the [`OpLog`](crate::oplog::OpLog), finalises state,
+///    and unlocks the doc.
 pub struct Transaction {
   /// Peer that owns this transaction.
   pub peer: PeerID,
@@ -42,32 +44,47 @@ pub struct Transaction {
   pub finished: bool,
   /// Event hints parallel to `local_ops`.
   pub event_hints: Vec<EventHint>,
+  /// Optional origin tag (e.g. `"user"`, `"sync"`).
+  pub origin: Option<String>,
+  /// Optional callback run after the transaction is successfully committed.
+  pub on_commit: Option<Box<dyn FnOnce()>>,
 }
 
 impl Transaction {
-  /// Creates a new transaction with the given causal metadata.
+  /// Creates a new transaction bound to the given document.
   ///
-  /// `counter` and `lamport` are typically obtained from the [`OpLog`]
-  /// (`oplog.next_id(peer).counter` and
-  /// `dag.get_change_lamport_from_deps(&frontiers)`).
-  pub fn new(
-    peer: PeerID,
-    counter: Counter,
-    lamport: Lamport,
-    frontiers: Frontiers,
-    arena: SharedArena,
-  ) -> Self {
+  /// # Panics
+  ///
+  /// Panics if another transaction is already active on `doc`.
+  pub fn new(doc: &mut CoralDoc, origin: Option<String>) -> Self {
+    assert!(
+      !doc.txn_in_progress,
+      "another transaction is already in progress"
+    );
+    doc.txn_in_progress = true;
+
+    let peer = doc.peer_id;
+    let frontiers = doc.oplog.frontiers().clone();
+    let next_id = doc.oplog.next_id(peer);
+    let lamport = doc
+      .oplog
+      .dag
+      .get_change_lamport_from_deps(&frontiers)
+      .unwrap_or(0);
+
     Self {
       peer,
-      start_counter: counter,
-      next_counter: counter,
+      start_counter: next_id.counter,
+      next_counter: next_id.counter,
       start_lamport: lamport,
       next_lamport: lamport,
       frontiers,
       local_ops: Vec::new(),
-      arena,
+      arena: doc.arena.clone(),
       finished: false,
       event_hints: Vec::new(),
+      origin,
+      on_commit: None,
     }
   }
 
@@ -100,13 +117,14 @@ impl Transaction {
   /// Apply a local operation to this transaction.
   ///
   /// Converts `raw_content` into arena-resolved [`OpContent`], creates an
-  /// [`Op`], and buffers it.
+  /// [`Op`], applies it to `doc.state`, and buffers it.
   ///
   /// # Panics
   ///
   /// Panics if the transaction has already been finished.
   pub fn apply_local_op(
     &mut self,
+    doc: &mut CoralDoc,
     container: ContainerIdx,
     raw_content: RawOpContent<'_>,
     event_hint: Option<EventHint>,
@@ -116,16 +134,18 @@ impl Transaction {
     let content = raw_content.to_op_content(&self.arena);
     let op = Op::new(self.next_counter, container, content);
     self.next_counter += op.atom_len() as Counter;
+
+    // Apply to live state.
+    doc.state.apply_local_op(&op, &self.arena);
+
     self.local_ops.push(op);
 
     if let Some(hint) = event_hint {
       self.event_hints.push(hint);
     }
-
-    // TODO(Phase 9+): apply op to DocState when DocState is implemented
   }
 
-  /// Commit this transaction, producing a [`Change`] and importing it into the OpLog.
+  /// Commit this transaction, producing a [`Change`] and importing it into the doc.
   ///
   /// `timestamp` is the physical wall-clock time in **seconds** since the Unix epoch.
   ///
@@ -136,11 +156,12 @@ impl Transaction {
   /// Panics if the transaction has already been finished.
   pub fn commit_with_timestamp(
     mut self,
-    oplog: &mut OpLog,
+    doc: &mut CoralDoc,
     timestamp: Timestamp,
   ) -> Option<Change> {
     assert!(!self.finished, "cannot commit a finished transaction");
     self.finished = true;
+    doc.txn_in_progress = false;
 
     if self.local_ops.is_empty() {
       return None;
@@ -150,12 +171,18 @@ impl Transaction {
     let change = Change::new(
       ops,
       self.frontiers,
-      crate::types::ID::new(self.peer, self.start_counter),
+      ID::new(self.peer, self.start_counter),
       self.start_lamport,
       timestamp,
     );
 
-    oplog.import_local_change(change.clone());
+    doc.oplog.import_local_change(change.clone());
+    doc.state.commit();
+
+    if let Some(cb) = self.on_commit.take() {
+      cb();
+    }
+
     Some(change)
   }
 
@@ -163,44 +190,82 @@ impl Transaction {
   ///
   /// Delegates to [`commit_with_timestamp`](Transaction::commit_with_timestamp)
   /// using `std::time::SystemTime::now()`.
-  pub fn commit(self, oplog: &mut OpLog) -> Option<Change> {
+  pub fn commit(self, doc: &mut CoralDoc) -> Option<Change> {
     let timestamp = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH)
       .unwrap_or_default()
       .as_secs() as Timestamp;
-    self.commit_with_timestamp(oplog, timestamp)
+    self.commit_with_timestamp(doc, timestamp)
+  }
+}
+
+impl std::fmt::Debug for Transaction {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("Transaction")
+      .field("peer", &self.peer)
+      .field("start_counter", &self.start_counter)
+      .field("next_counter", &self.next_counter)
+      .field("start_lamport", &self.start_lamport)
+      .field("next_lamport", &self.next_lamport)
+      .field("frontiers", &self.frontiers)
+      .field("local_ops", &self.local_ops)
+      .field("arena", &self.arena)
+      .field("finished", &self.finished)
+      .field("event_hints", &self.event_hints)
+      .field("origin", &self.origin)
+      .field("on_commit", &self.on_commit.is_some())
+      .finish()
   }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::memory::arena::InnerArena;
   use crate::op::OpContent;
   use crate::types::{ContainerID, ContainerType, CoralValue, ID};
+  use std::sync::Arc;
+  use std::sync::atomic::{AtomicBool, Ordering};
 
   #[test]
   fn test_txn_new() {
-    let arena = SharedArena::new(InnerArena::new());
-    let frontiers = Frontiers::from_id(ID::new(0, 0));
-    let txn = Transaction::new(1, 10, 5, frontiers.clone(), arena);
+    let mut doc = CoralDoc::new(1);
+    let frontiers = doc.oplog.frontiers().clone();
+    let txn = Transaction::new(&mut doc, None);
 
     assert_eq!(txn.peer, 1);
-    assert_eq!(txn.start_counter, 10);
-    assert_eq!(txn.next_counter, 10);
-    assert_eq!(txn.start_lamport, 5);
-    assert_eq!(txn.next_lamport, 5);
+    assert_eq!(txn.start_counter, 0);
+    assert_eq!(txn.next_counter, 0);
+    assert_eq!(txn.start_lamport, 0);
+    assert_eq!(txn.next_lamport, 0);
     assert_eq!(txn.frontiers, frontiers);
     assert!(txn.is_empty());
     assert_eq!(txn.len(), 0);
     assert!(!txn.finished);
+    assert!(doc.txn_in_progress);
+  }
+
+  #[test]
+  fn test_txn_new_with_origin() {
+    let mut doc = CoralDoc::new(1);
+    let txn = Transaction::new(&mut doc, Some("user".to_string()));
+    assert_eq!(txn.origin, Some("user".to_string()));
+  }
+
+  #[test]
+  #[should_panic(expected = "another transaction is already in progress")]
+  fn test_txn_double_new_panics() {
+    let mut doc = CoralDoc::new(1);
+    let _txn1 = Transaction::new(&mut doc, None);
+    let _txn2 = Transaction::new(&mut doc, None);
   }
 
   #[test]
   fn test_txn_add_op_counter() {
-    let arena = SharedArena::new(InnerArena::new());
-    let container = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let mut txn = Transaction::new(1, 0, 1, Frontiers::new(), arena);
+    let mut doc = CoralDoc::new(1);
+    let container = doc
+      .arena
+      .register(&ContainerID::new_root("c", ContainerType::Counter));
+    let mut txn = Transaction::new(&mut doc, None);
 
     txn.add_op(container, OpContent::Counter(3.0));
     assert!(!txn.is_empty());
@@ -217,11 +282,14 @@ mod tests {
 
   #[test]
   fn test_txn_apply_local_op_counter() {
-    let arena = SharedArena::new(InnerArena::new());
-    let container = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let mut txn = Transaction::new(1, 5, 10, Frontiers::new(), arena);
+    let mut doc = CoralDoc::new(1);
+    let container = doc
+      .arena
+      .register(&ContainerID::new_root("c", ContainerType::Counter));
+    let mut txn = Transaction::new(&mut doc, None);
 
     txn.apply_local_op(
+      &mut doc,
       container,
       RawOpContent::Counter(2.5),
       Some(EventHint::Map {
@@ -231,53 +299,61 @@ mod tests {
     );
 
     assert_eq!(txn.len(), 1);
-    assert_eq!(txn.next_counter, 6);
+    assert_eq!(txn.next_counter, 1);
     assert_eq!(txn.event_hints.len(), 1);
   }
 
   #[test]
   fn test_txn_empty_commit_returns_none() {
-    let arena = SharedArena::new(InnerArena::new());
-    let mut oplog = OpLog::new();
-    let txn = Transaction::new(1, 0, 1, Frontiers::new(), arena);
+    let mut doc = CoralDoc::new(1);
+    let txn = Transaction::new(&mut doc, None);
+    assert!(doc.txn_in_progress);
 
-    let result = txn.commit_with_timestamp(&mut oplog, 1_700_000_000);
+    let result = txn.commit_with_timestamp(&mut doc, 1_700_000_000);
     assert!(result.is_none());
+    assert!(!doc.txn_in_progress);
   }
 
   #[test]
   fn test_txn_commit_imports_to_oplog() {
-    let arena = SharedArena::new(InnerArena::new());
-    let container = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let mut oplog = OpLog::new();
-    let mut txn = Transaction::new(1, 0, 1, Frontiers::new(), arena);
+    let mut doc = CoralDoc::new(1);
+    let container = doc
+      .arena
+      .register(&ContainerID::new_root("c", ContainerType::Counter));
+    let mut txn = Transaction::new(&mut doc, None);
 
     txn.add_op(container, OpContent::Counter(3.0));
     txn.add_op(container, OpContent::Counter(2.0));
 
     let change = txn
-      .commit_with_timestamp(&mut oplog, 1_700_000_000)
+      .commit_with_timestamp(&mut doc, 1_700_000_000)
       .expect("commit should produce a Change");
 
     // Verify the returned Change
     assert_eq!(change.peer(), 1);
     assert_eq!(change.id(), ID::new(1, 0));
-    assert_eq!(change.lamport(), 1);
+    assert_eq!(change.lamport(), 0);
     assert_eq!(change.len(), 2);
     assert_eq!(change.timestamp(), 1_700_000_000);
 
     // Verify the OpLog received it
-    assert_eq!(oplog.vv().get(1), Some(&2));
-    assert_eq!(oplog.frontiers().as_single(), Some(ID::new(1, 1)));
+    assert_eq!(doc.oplog.vv().get(1), Some(&2));
+    assert_eq!(doc.oplog.frontiers().as_single(), Some(ID::new(1, 1)));
+
+    // Verify the doc is unlocked
+    assert!(!doc.txn_in_progress);
   }
 
   #[test]
   fn test_txn_commit_counter_continuity() {
-    let arena = SharedArena::new(InnerArena::new());
-    let c1 = arena.register(&ContainerID::new_root("a", ContainerType::Counter));
-    let c2 = arena.register(&ContainerID::new_root("b", ContainerType::Map));
-    let mut oplog = OpLog::new();
-    let mut txn = Transaction::new(1, 0, 1, Frontiers::new(), arena);
+    let mut doc = CoralDoc::new(1);
+    let c1 = doc
+      .arena
+      .register(&ContainerID::new_root("a", ContainerType::Counter));
+    let c2 = doc
+      .arena
+      .register(&ContainerID::new_root("b", ContainerType::Map));
+    let mut txn = Transaction::new(&mut doc, None);
 
     txn.add_op(c1, OpContent::Counter(1.0));
     txn.add_op(
@@ -288,7 +364,7 @@ mod tests {
       }),
     );
 
-    let change = txn.commit_with_timestamp(&mut oplog, 1).unwrap();
+    let change = txn.commit_with_timestamp(&mut doc, 1).unwrap();
     let ops: Vec<_> = change.ops().iter().collect();
     assert_eq!(ops.len(), 2);
     assert_eq!(ops[0].counter, 0);
@@ -299,9 +375,11 @@ mod tests {
   #[test]
   #[should_panic(expected = "cannot add op to a finished transaction")]
   fn test_txn_add_op_after_finish_panics() {
-    let arena = SharedArena::new(InnerArena::new());
-    let container = arena.register(&ContainerID::new_root("c", ContainerType::Counter));
-    let mut txn = Transaction::new(1, 0, 1, Frontiers::new(), arena);
+    let mut doc = CoralDoc::new(1);
+    let container = doc
+      .arena
+      .register(&ContainerID::new_root("c", ContainerType::Counter));
+    let mut txn = Transaction::new(&mut doc, None);
     txn.finished = true; // simulate a committed/dropped transaction
 
     // This should panic — transaction is already finished.
@@ -311,21 +389,23 @@ mod tests {
   #[test]
   #[should_panic(expected = "cannot commit a finished transaction")]
   fn test_txn_double_commit_panics() {
-    let arena = SharedArena::new(InnerArena::new());
-    let mut txn = Transaction::new(1, 0, 1, Frontiers::new(), arena);
+    let mut doc = CoralDoc::new(1);
+    let mut txn = Transaction::new(&mut doc, None);
     txn.finished = true; // simulate prior commit
 
-    let mut oplog = OpLog::new();
-    let _ = txn.commit_with_timestamp(&mut oplog, 1);
+    let _ = txn.commit_with_timestamp(&mut doc, 1);
   }
 
   #[test]
   fn test_txn_apply_local_op_map() {
-    let arena = SharedArena::new(InnerArena::new());
-    let container = arena.register(&ContainerID::new_root("m", ContainerType::Map));
-    let mut txn = Transaction::new(1, 0, 1, Frontiers::new(), arena);
+    let mut doc = CoralDoc::new(1);
+    let container = doc
+      .arena
+      .register(&ContainerID::new_root("m", ContainerType::Map));
+    let mut txn = Transaction::new(&mut doc, None);
 
     txn.apply_local_op(
+      &mut doc,
       container,
       RawOpContent::Map(crate::container::map::MapSet {
         key: "hello".into(),
@@ -368,5 +448,70 @@ mod tests {
     for hint in &hints {
       let _cloned = hint.clone();
     }
+  }
+
+  #[test]
+  fn test_txn_on_commit_callback() {
+    let mut doc = CoralDoc::new(1);
+    let container = doc
+      .arena
+      .register(&ContainerID::new_root("c", ContainerType::Counter));
+    let mut txn = Transaction::new(&mut doc, None);
+
+    let called = Arc::new(AtomicBool::new(false));
+    let called_clone = Arc::clone(&called);
+    txn.on_commit = Some(Box::new(move || {
+      called_clone.store(true, Ordering::SeqCst);
+    }));
+
+    txn.add_op(container, OpContent::Counter(1.0));
+    let _ = txn.commit_with_timestamp(&mut doc, 1);
+
+    assert!(called.load(Ordering::SeqCst));
+  }
+
+  #[test]
+  fn test_txn_commit_unlocks_doc() {
+    let mut doc = CoralDoc::new(1);
+    let _container = doc
+      .arena
+      .register(&ContainerID::new_root("c", ContainerType::Counter));
+    let txn = Transaction::new(&mut doc, None);
+    assert!(doc.txn_in_progress);
+
+    let _ = txn.commit_with_timestamp(&mut doc, 1);
+    assert!(!doc.txn_in_progress);
+
+    // A new transaction can now be created.
+    let _txn2 = Transaction::new(&mut doc, None);
+  }
+
+  #[test]
+  fn test_two_consecutive_txns() {
+    let mut doc = CoralDoc::new(1);
+    let c = doc
+      .arena
+      .register(&ContainerID::new_root("c", ContainerType::Counter));
+
+    // First transaction: counters 0..1
+    let mut txn1 = Transaction::new(&mut doc, None);
+    txn1.add_op(c, OpContent::Counter(1.0));
+    let change1 = txn1.commit_with_timestamp(&mut doc, 1).unwrap();
+    assert_eq!(change1.id(), ID::new(1, 0));
+    assert_eq!(change1.len(), 1);
+
+    // Second transaction: counters 1..2
+    let mut txn2 = Transaction::new(&mut doc, None);
+    txn2.add_op(c, OpContent::Counter(2.0));
+    let change2 = txn2.commit_with_timestamp(&mut doc, 2).unwrap();
+    assert_eq!(change2.id(), ID::new(1, 1));
+    assert_eq!(change2.len(), 1);
+
+    // Verify deps: second transaction depends on the first.
+    assert_eq!(change2.deps().as_single(), Some(ID::new(1, 0)));
+
+    // Verify OpLog state
+    assert_eq!(doc.oplog.vv().get(1), Some(&2));
+    assert_eq!(doc.oplog.frontiers().as_single(), Some(ID::new(1, 1)));
   }
 }
