@@ -1,4 +1,4 @@
-use super::{HasLength, Mergeable};
+use super::rle_traits::{HasLength, Mergeable};
 
 /// A vector that automatically merges adjacent elements using run-length
 /// encoding (RLE) when possible.
