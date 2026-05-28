@@ -60,12 +60,12 @@ impl<T: Mergable + HasLength> RleVec<T> {
   /// If the last stored element is mergable with `value`, the two are
   /// combined in-place and no new entry is appended.
   pub fn push(&mut self, value: T) {
-    if let Some(last) = self.vec.last() {
-      if last.is_mergable(&value) {
-        let last = self.vec.last_mut().unwrap();
-        last.merge(&value);
-        return;
-      }
+    if let Some(last) = self.vec.last()
+      && last.is_mergable(&value)
+    {
+      let last = self.vec.last_mut().unwrap();
+      last.merge(&value);
+      return;
     }
     self.vec.push(value);
   }

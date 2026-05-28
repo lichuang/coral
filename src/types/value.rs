@@ -2,9 +2,10 @@
 ///
 /// This is a minimal set of primitive types; more variants will be added
 /// as the library grows (e.g., String, List, Map, Container).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Value {
   /// The null value, used as the default.
+  #[default]
   Null,
   /// A boolean value.
   Bool(bool),
@@ -12,12 +13,6 @@ pub enum Value {
   I64(i64),
   /// A 64-bit floating-point number.
   Double(f64),
-}
-
-impl Default for Value {
-  fn default() -> Self {
-    Value::Null
-  }
 }
 
 impl From<bool> for Value {
