@@ -8,3 +8,4 @@ description = "A composable CRDT library for collaborative applications. "
 repository = "https://github.com/lichuang/coral"
 
 [dependencies]
+thiserror = "2"

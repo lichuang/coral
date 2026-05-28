@@ -1,3 +1,4 @@
+use crate::common::CoralError;
 use std::fmt;
 
 /// The type of a CRDT container.
@@ -19,12 +20,12 @@ impl From<ContainerType> for u8 {
 }
 
 impl TryFrom<u8> for ContainerType {
-    type Error = String;
+    type Error = CoralError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(ContainerType::Counter),
-            _ => Err(format!("Unknown container type: {value}")),
+            _ => Err(CoralError::UnknownContainerType(value)),
         }
     }
 }
@@ -56,6 +57,7 @@ mod tests {
     fn test_container_type_try_from_u8_err() {
         let result: Result<ContainerType, _> = 1u8.try_into();
         assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), CoralError::UnknownContainerType(1));
     }
 
     #[test]

@@ -26,6 +26,8 @@ pub type Lamport = u32;
 
 /// Physical timestamp in seconds since the Unix epoch.
 ///
-/// Used to record wall-clock time for each [`Change`](crate::core::change::Change).
+/// Physical timestamp in seconds since the Unix epoch.
+///
+/// Used to record wall-clock time for each change.
 /// Note: this is stored in **seconds**, not milliseconds.
 pub type Timestamp = i64;
