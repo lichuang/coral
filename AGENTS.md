@@ -27,3 +27,4 @@ src/
 - Do not use long inline path references like `crate::module::Type::Variant`.
   Always import the type with `use` at the top of the file and refer to it by
   short name.
+- Run `cargo fmt` after writing or modifying any Rust source file.
