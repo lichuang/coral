@@ -33,6 +33,16 @@ impl OpId {
       counter: self.counter + offset,
     }
   }
+
+  /// Returns whether `other` is the immediate successor of `self` given a
+  /// content length of `len`.
+  ///
+  /// Two `OpId`s are consecutive when they share the same peer and
+  /// `other.counter == self.counter + len`.
+  #[inline]
+  pub const fn is_consecutive(&self, other: &Self, len: Counter) -> bool {
+    self.peer == other.peer && self.counter + len == other.counter
+  }
 }
 
 impl PartialOrd for OpId {
@@ -110,6 +120,22 @@ mod tests {
   fn test_op_id_inc() {
     let id = OpId::new(42, 100);
     assert_eq!(id.inc(5), OpId::new(42, 105));
+  }
+
+  #[test]
+  fn test_op_id_is_consecutive() {
+    let a = OpId::new(1, 10);
+
+    // same peer, counter exactly len apart
+    assert!(a.is_consecutive(&OpId::new(1, 11), 1));
+    assert!(a.is_consecutive(&OpId::new(1, 13), 3));
+
+    // same peer, counter not len apart
+    assert!(!a.is_consecutive(&OpId::new(1, 12), 1));
+    assert!(!a.is_consecutive(&OpId::new(1, 9), 1));
+
+    // different peer
+    assert!(!a.is_consecutive(&OpId::new(2, 11), 1));
   }
 
   #[test]

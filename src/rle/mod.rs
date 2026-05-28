@@ -9,14 +9,14 @@ pub trait HasLength {
 }
 
 /// A type that can be merged with another of the same type.
-pub trait Mergable {
+pub trait Mergeable {
   /// Returns whether `self` can be merged with `other`.
-  fn is_mergable(&self, other: &Self) -> bool;
+  fn is_mergeable(&self, other: &Self) -> bool;
 
   /// Merges `other` into `self`.
   ///
   /// # Panics
   ///
-  /// May panic if `is_mergable` returns `false`.
+  /// May panic if `is_mergeable` returns `false`.
   fn merge(&mut self, other: &Self);
 }

@@ -1,4 +1,4 @@
-use super::{HasLength, Mergable};
+use super::{HasLength, Mergeable};
 
 /// A vector that automatically merges adjacent elements using run-length
 /// encoding (RLE) when possible.
@@ -54,14 +54,14 @@ impl<T> RleVec<T> {
   }
 }
 
-impl<T: Mergable + HasLength> RleVec<T> {
+impl<T: Mergeable + HasLength> RleVec<T> {
   /// Pushes a new element into the vector.
   ///
-  /// If the last stored element is mergable with `value`, the two are
+  /// If the last stored element is mergeable with `value`, the two are
   /// combined in-place and no new entry is appended.
   pub fn push(&mut self, value: T) {
     if let Some(last) = self.vec.last()
-      && last.is_mergable(&value)
+      && last.is_mergeable(&value)
     {
       let last = self.vec.last_mut().unwrap();
       last.merge(&value);
@@ -107,8 +107,8 @@ mod tests {
     }
   }
 
-  impl Mergable for Run {
-    fn is_mergable(&self, other: &Self) -> bool {
+  impl Mergeable for Run {
+    fn is_mergeable(&self, other: &Self) -> bool {
       self.start + self.len as u32 == other.start
     }
 
