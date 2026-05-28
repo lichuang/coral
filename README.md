@@ -1,2 +1,2 @@
 # coral
-A composable CRDT library for collaborative applications. 
+ A composable CRDT library for collaborative applications.
