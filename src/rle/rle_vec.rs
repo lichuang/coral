@@ -10,7 +10,7 @@ use super::{HasLength, Mergable};
 /// the underlying data contains long runs of mergeable items.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RleVec<T> {
-  // TODO: use smallvec
+  // TODO: use smallvec intead
   vec: Vec<T>,
 }
 

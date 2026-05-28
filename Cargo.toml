@@ -8,4 +8,5 @@ description = "A composable CRDT library for collaborative applications. "
 repository = "https://github.com/lichuang/coral"
 
 [dependencies]
+rustc-hash = "2"
 thiserror = "2"
