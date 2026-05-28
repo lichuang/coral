@@ -74,19 +74,19 @@ impl TryFrom<&str> for OpId {
 
   fn try_from(value: &str) -> Result<Self, Self::Error> {
     if value.split('@').count() != 2 {
-      return Err("Invalid ID format".into());
+      return Err("Invalid OpId format".into());
     }
     let mut iter = value.split('@');
     let counter = iter
       .next()
       .unwrap()
       .parse::<Counter>()
-      .map_err(|_| "Invalid ID format: counter".to_string())?;
+      .map_err(|_| "Invalid OpId format: counter".to_string())?;
     let peer = iter
       .next()
       .unwrap()
       .parse::<PeerID>()
-      .map_err(|_| "Invalid ID format: peer".to_string())?;
+      .map_err(|_| "Invalid OpId format: peer".to_string())?;
     Ok(OpId::new(peer, counter))
   }
 }
