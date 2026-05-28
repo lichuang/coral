@@ -31,3 +31,17 @@ pub type Lamport = u32;
 /// Used to record wall-clock time for each change.
 /// Note: this is stored in **seconds**, not milliseconds.
 pub type Timestamp = i64;
+
+/// Extension trait for [`Counter`] providing sequence-related helpers.
+pub trait CounterExt {
+  /// Returns whether `other` is the immediate successor of `self`
+  /// given a content length of `len`.
+  fn is_consecutive(&self, other: Self, len: Self) -> bool;
+}
+
+impl CounterExt for Counter {
+  #[inline]
+  fn is_consecutive(&self, other: Self, len: Self) -> bool {
+    self + len == other
+  }
+}

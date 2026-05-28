@@ -1,4 +1,4 @@
-use super::{Counter, PeerID};
+use super::{Counter, CounterExt, PeerID};
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -40,8 +40,8 @@ impl OpId {
   /// Two `OpId`s are consecutive when they share the same peer and
   /// `other.counter == self.counter + len`.
   #[inline]
-  pub const fn is_consecutive(&self, other: &Self, len: Counter) -> bool {
-    self.peer == other.peer && self.counter + len == other.counter
+  pub fn is_consecutive(&self, other: &Self, len: Counter) -> bool {
+    self.peer == other.peer && self.counter.is_consecutive(other.counter, len)
   }
 }
 
