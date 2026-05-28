@@ -1,3 +1,3 @@
 pub mod error;
 
-pub use error::CoralError;
+pub use error::{CoralError, CoralResult};

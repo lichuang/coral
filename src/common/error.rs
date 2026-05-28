@@ -7,3 +7,6 @@ pub enum CoralError {
   #[error("unknown container type: {0}")]
   UnknownContainerType(u8),
 }
+
+/// Convenience alias for `Result<T, CoralError>`.
+pub type CoralResult<T> = Result<T, CoralError>;
