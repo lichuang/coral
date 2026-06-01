@@ -253,7 +253,7 @@ mod tests {
   use super::*;
   use crate::core::Change;
   use crate::operation::{Cmd, Op};
-  use crate::types::{ContainerIndex, ContainerType, OpId};
+  use crate::types::{ObjectIndex, ObjectType, OpId};
 
   fn make_change(
     peer: PeerID,
@@ -268,7 +268,7 @@ mod tests {
     for i in 0..len {
       let op = Op::new(
         counter + i as Counter,
-        ContainerIndex::new(0, ContainerType::Counter),
+        ObjectIndex::new(0, ObjectType::Counter),
         Cmd::IncCounter { delta: 1.0 },
       );
       change.push_op(op);

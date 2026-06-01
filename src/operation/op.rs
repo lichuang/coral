@@ -1,6 +1,6 @@
 use crate::operation::Cmd;
 use crate::rle::{HasLength, Mergeable};
-use crate::types::{ContainerIndex, Counter, CounterExt};
+use crate::types::{Counter, CounterExt, ObjectIndex};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Op {
@@ -9,12 +9,12 @@ pub struct Op {
   /// This is the full counter (not a relative offset) and matches the
   /// corresponding position in the enclosing [`Change`](crate::core::Change).
   pub counter: Counter,
-  pub container: ContainerIndex,
+  pub container: ObjectIndex,
   pub cmd: Cmd,
 }
 
 impl Op {
-  pub const fn new(counter: Counter, container: ContainerIndex, cmd: Cmd) -> Self {
+  pub const fn new(counter: Counter, container: ObjectIndex, cmd: Cmd) -> Self {
     Self {
       counter,
       container,
