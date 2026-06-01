@@ -161,6 +161,23 @@ impl From<Vec<OpId>> for Heads {
   }
 }
 
+impl Heads {
+  /// Returns an iterator over all contained [`OpId`]s.
+  pub fn iter(&self) -> impl Iterator<Item = OpId> {
+    let mut ids = Vec::new();
+    match self {
+      Self::Empty => {}
+      Self::Linear(id) => ids.push(*id),
+      Self::Concurrent(m) => {
+        for (&peer, &counter) in m.iter() {
+          ids.push(OpId::new(peer, counter));
+        }
+      }
+    }
+    ids.into_iter()
+  }
+}
+
 impl FromIterator<OpId> for Heads {
   fn from_iter<I: IntoIterator<Item = OpId>>(iter: I) -> Self {
     let mut heads = Heads::new();

@@ -19,6 +19,8 @@ use crate::version::Heads;
 /// - `deps` — the [`Heads`] this change depends on (the DAG frontier right
 ///   before this change was created).
 /// - `ops` — the actual operations, stored in a run-length encoded vector.
+/// - `from_local` — `true` if this change originated from the local peer,
+///   `false` if it was imported from a remote peer during sync.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Change {
   pub id: OpId,
@@ -26,17 +28,25 @@ pub struct Change {
   pub timestamp: Timestamp,
   pub deps: Heads,
   pub ops: RleVec<Op>,
+  pub from_local: bool,
 }
 
 impl Change {
   /// Creates a new empty `Change` with the given metadata.
-  pub fn new(id: OpId, lamport: Lamport, timestamp: Timestamp, deps: Heads) -> Self {
+  pub fn new(
+    id: OpId,
+    lamport: Lamport,
+    timestamp: Timestamp,
+    deps: Heads,
+    from_local: bool,
+  ) -> Self {
     Self {
       id,
       lamport,
       timestamp,
       deps,
       ops: RleVec::new(),
+      from_local,
     }
   }
 
