@@ -24,16 +24,8 @@ impl Document {
   /// Returns a reference to the counter object with the given name.
   ///
   /// The object must already exist and be a counter.
-  pub fn get_counter(&self, name: &str) -> CoralResult<CounterRef<'_>> {
+  pub fn get_counter(&mut self, name: &str) -> CoralResult<CounterRef<'_>> {
     self.inner.get_counter(name)
-  }
-
-  /// Ensures a counter object with the given name exists, creating it if
-  /// necessary.
-  ///
-  /// Returns an error if the name is already used by a different object type.
-  pub fn ensure_counter(&mut self, name: &str) -> CoralResult<CounterRef<'_>> {
-    self.inner.ensure_counter(name)
   }
 }
 

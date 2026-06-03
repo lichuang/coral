@@ -6,6 +6,14 @@ pub enum CoralError {
   /// Unknown object type encountered during conversion.
   #[error("unknown object type: {0}")]
   UnknownObjectType(u8),
+
+  /// Requested object does not exist.
+  #[error("object not found: {0}")]
+  NotFound(String),
+
+  /// Object type does not match the expected type.
+  #[error("type mismatch: expected {expected}, found {actual}")]
+  TypeMismatch { expected: String, actual: String },
 }
 
 /// Convenience alias for `Result<T, CoralError>`.

@@ -14,6 +14,16 @@ pub enum ObjectId {
   Node { op: OpId, typ: ObjectType },
 }
 
+impl ObjectId {
+  /// Returns the [`ObjectType`] of this object.
+  pub fn typ(&self) -> ObjectType {
+    match self {
+      ObjectId::Root { typ, .. } => *typ,
+      ObjectId::Node { typ, .. } => *typ,
+    }
+  }
+}
+
 /// The type of a CRDT object (container).
 ///
 /// Objects are the building blocks of collaborative documents.

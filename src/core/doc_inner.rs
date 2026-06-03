@@ -1,6 +1,7 @@
-use crate::common::CoralResult;
+use crate::common::{CoralError, CoralResult};
+use crate::types::{ObjectId, ObjectType};
 
-use super::CounterRef;
+use super::{CounterRef, ObjectRegistry};
 
 /// The internal state of a collaborative document.
 ///
@@ -8,7 +9,9 @@ use super::CounterRef;
 /// store, the shared arena, and all container states. It is wrapped by
 /// [`Document`](crate::Document) which provides the public API.
 #[derive(Debug, Default)]
-pub struct DocInner {}
+pub struct DocInner {
+  registry: ObjectRegistry,
+}
 
 impl DocInner {
   /// Creates a new empty `DocInner`.
@@ -18,16 +21,26 @@ impl DocInner {
 
   /// Returns a reference to the counter object with the given name.
   ///
-  /// The object must already exist and be a counter.
-  pub fn get_counter(&self, _name: &str) -> CoralResult<CounterRef<'_>> {
-    todo!()
-  }
+  /// If the object does not yet exist, a new entry is allocated in the
+  /// registry. If the name is already used by a different type, returns
+  /// a type mismatch error.
+  pub fn get_counter(&mut self, name: &str) -> CoralResult<CounterRef<'_>> {
+    if let Some(index) = self.registry.get_root(name) {
+      let typ = index.typ()?;
+      if typ != ObjectType::Counter {
+        return Err(CoralError::TypeMismatch {
+          expected: "Counter".to_string(),
+          actual: typ.to_string(),
+        });
+      }
+      return Ok(CounterRef::new(self, index));
+    }
 
-  /// Ensures a counter object with the given name exists, creating it if
-  /// necessary.
-  ///
-  /// Returns an error if the name is already used by a different object type.
-  pub fn ensure_counter(&mut self, _name: &str) -> CoralResult<CounterRef<'_>> {
-    todo!()
+    let id = ObjectId::Root {
+      name: name.to_string(),
+      typ: ObjectType::Counter,
+    };
+    let index = self.registry.alloc_root(name.to_string(), id);
+    Ok(CounterRef::new(self, index))
   }
 }
