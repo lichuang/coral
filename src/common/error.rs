@@ -14,6 +14,10 @@ pub enum CoralError {
   /// Object type does not match the expected type.
   #[error("type mismatch: expected {expected}, found {actual}")]
   TypeMismatch { expected: String, actual: String },
+
+  /// An operation was applied to a container that cannot handle it.
+  #[error("invalid operation for container: {0}")]
+  InvalidOperation(String),
 }
 
 /// Convenience alias for `Result<T, CoralError>`.

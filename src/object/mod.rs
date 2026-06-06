@@ -2,9 +2,9 @@ pub mod registry;
 pub mod state;
 
 pub use registry::ObjectRegistry;
-pub use state::CounterState;
+pub use state::ObjectState;
 
-use crate::core::DocInner;
+use crate::core::{Commit, DocInner};
 use crate::operation::{Cmd, Op};
 use crate::types::{ObjectIndex, OpId, Timestamp};
 
@@ -54,7 +54,8 @@ impl ObjectRef<'_, marker::Counter> {
   pub fn value(&self) -> f64 {
     self
       .doc
-      .counter_state(self.index)
+      .state(self.index)
+      .and_then(|s| s.as_counter())
       .map(|s| s.value())
       .unwrap_or(0.0)
   }
@@ -72,7 +73,9 @@ impl ObjectRef<'_, marker::Counter> {
 
     let op = Op::new(counter, self.index, Cmd::IncCounter { delta });
 
-    let mut commit = crate::core::Commit::new(
+    self.doc.state_mut(self.index).apply(&op).unwrap();
+
+    let mut commit = Commit::new(
       OpId::new(peer_id, counter),
       lamport,
       0 as Timestamp,
@@ -83,16 +86,13 @@ impl ObjectRef<'_, marker::Counter> {
 
     self.doc.causal_graph_mut().insert(&commit);
     self.doc.push_to_history(commit);
-    self
-      .doc
-      .counter_state_mut(self.index)
-      .apply_increment(delta);
   }
 }
 
 #[cfg(test)]
 mod increment_tests {
   use crate::Document;
+  use crate::types::OpId;
 
   #[test]
   fn test_counter_increment_and_value() {
@@ -127,7 +127,7 @@ mod increment_tests {
     assert_eq!(vv.get(peer_id), Some(2));
 
     let heads = cg.heads();
-    assert_eq!(heads.as_single(), Some(crate::types::OpId::new(peer_id, 1)));
+    assert_eq!(heads.as_single(), Some(OpId::new(peer_id, 1)));
   }
 
   #[test]
@@ -229,9 +229,9 @@ mod increment_tests {
     let commits = history.iter().collect::<Vec<_>>();
     assert_eq!(commits.len(), 3);
 
-    assert_eq!(commits[0].id, crate::types::OpId::new(peer_id, 0));
-    assert_eq!(commits[1].id, crate::types::OpId::new(peer_id, 1));
-    assert_eq!(commits[2].id, crate::types::OpId::new(peer_id, 2));
+    assert_eq!(commits[0].id, OpId::new(peer_id, 0));
+    assert_eq!(commits[1].id, OpId::new(peer_id, 1));
+    assert_eq!(commits[2].id, OpId::new(peer_id, 2));
   }
 
   #[test]
@@ -259,7 +259,7 @@ mod increment_tests {
     }
     assert_eq!(
       doc.causal_graph().heads().as_single(),
-      Some(crate::types::OpId::new(peer_id, 0))
+      Some(OpId::new(peer_id, 0))
     );
 
     {
@@ -268,7 +268,7 @@ mod increment_tests {
     }
     assert_eq!(
       doc.causal_graph().heads().as_single(),
-      Some(crate::types::OpId::new(peer_id, 1))
+      Some(OpId::new(peer_id, 1))
     );
   }
 }

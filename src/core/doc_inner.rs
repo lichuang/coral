@@ -1,11 +1,11 @@
 use crate::common::{CoralError, CoralResult};
-use crate::types::{Counter, ObjectId, ObjectType, PeerID};
+use crate::object::{CounterRef, ObjectRegistry, ObjectState};
+use crate::types::{Counter, ObjectId, ObjectIndex, ObjectType, PeerID};
 use rustc_hash::FxHashMap;
 
 use rand::Rng;
 
 use super::{CausalGraph, Commit, History};
-use crate::object::{CounterRef, CounterState, ObjectRegistry};
 
 /// The internal state of a collaborative document.
 ///
@@ -17,7 +17,7 @@ pub struct DocInner {
   next_counter: Counter,
   registry: ObjectRegistry,
   causal_graph: CausalGraph,
-  counter_states: FxHashMap<crate::types::ObjectIndex, CounterState>,
+  states: FxHashMap<ObjectIndex, ObjectState>,
   history: History,
 }
 
@@ -47,7 +47,7 @@ impl DocInner {
       next_counter: 0,
       registry: ObjectRegistry::new(),
       causal_graph: CausalGraph::new(),
-      counter_states: FxHashMap::default(),
+      states: FxHashMap::default(),
       history: History::new(),
     }
   }
@@ -77,15 +77,15 @@ impl DocInner {
     self.history.push(commit);
   }
 
-  /// Returns a reference to the counter state for the given container, if any.
-  pub fn counter_state(&self, index: crate::types::ObjectIndex) -> Option<&CounterState> {
-    self.counter_states.get(&index)
+  /// Returns a reference to the state for the given container, if any.
+  pub fn state(&self, index: ObjectIndex) -> Option<&ObjectState> {
+    self.states.get(&index)
   }
 
-  /// Returns a mutable reference to the counter state for the given container,
+  /// Returns a mutable reference to the state for the given container,
   /// creating one if it does not exist.
-  pub fn counter_state_mut(&mut self, index: crate::types::ObjectIndex) -> &mut CounterState {
-    self.counter_states.entry(index).or_default()
+  pub fn state_mut(&mut self, index: ObjectIndex) -> &mut ObjectState {
+    self.states.entry(index).or_default()
   }
 
   /// Returns a reference to the object registry.
