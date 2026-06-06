@@ -1,10 +1,8 @@
 pub mod causal;
-pub mod change;
+pub mod commit;
 pub mod doc_inner;
-pub mod object;
-pub mod object_registry;
+pub mod history;
 pub use causal::CausalGraph;
-pub use change::Change;
+pub use commit::Commit;
 pub use doc_inner::DocInner;
-pub use object::{CounterRef, ObjectRef};
-pub use object_registry::ObjectRegistry;
+pub use history::History;

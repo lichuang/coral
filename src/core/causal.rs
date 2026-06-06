@@ -125,7 +125,7 @@ impl CausalNode {
 ///
 /// `CausalGraph` records which operations are known to exist, but it does
 /// not store the operation content itself — that is the responsibility of
-/// the caller (e.g. a [`Change`](super::Change) store).
+/// the caller (e.g. a [`Commit`](super::Commit) store).
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
 pub struct CausalGraph {
@@ -139,9 +139,9 @@ pub struct CausalGraph {
   /// Current version vector — the latest known counter for each peer.
   vv: VersionVector,
 
-  /// Current frontiers — the DAG heads (latest operations with no known
+  /// Current heads — the DAG heads (latest operations with no known
   /// successors).
-  frontiers: Heads,
+  heads: Heads,
 }
 
 impl CausalGraph {
@@ -170,9 +170,9 @@ impl CausalGraph {
     &self.vv
   }
 
-  /// Returns the current frontiers.
-  pub fn frontiers(&self) -> &Heads {
-    &self.frontiers
+  /// Returns the current heads.
+  pub fn heads(&self) -> &Heads {
+    &self.heads
   }
 
   /// Returns the number of causal nodes stored in the graph.
@@ -180,15 +180,39 @@ impl CausalGraph {
     self.nodes.len()
   }
 
-  /// Inserts a [`Change`] into the causal graph.
+  /// Returns the lamport timestamp for the given [`OpId`], if it is
+  /// contained in this graph.
+  pub fn get_lamport(&self, id: &OpId) -> Option<Lamport> {
+    let node = self.get(id)?;
+    Some(node.lamport + (id.counter - node.start) as Lamport)
+  }
+
+  /// Calculates the lamport timestamp for the next change.
   ///
-  /// If the change is consecutive with the last node from the same peer
+  /// The new lamport is `max(lamport of each current frontier) + 1`.
+  /// If the heads are empty (no prior ops), returns `0`.
+  pub fn calc_next_lamport(&self) -> Lamport {
+    if self.heads.is_empty() {
+      return 0;
+    }
+    let mut max_lp = 0;
+    for id in self.heads.iter() {
+      if let Some(lp) = self.get_lamport(&id) {
+        max_lp = max_lp.max(lp);
+      }
+    }
+    max_lp + 1
+  }
+
+  /// Inserts a [`Commit`] into the causal graph.
+  ///
+  /// If the commit is consecutive with the last node from the same peer
   /// and linearly dependent on it, the existing node is extended in-place
   /// rather than creating a new [`CausalNode`].
-  pub fn insert(&mut self, change: &super::Change) {
-    let peer = change.id.peer;
-    let start = change.id.counter;
-    let len: usize = change.ops.iter().map(|op| op.content_len()).sum();
+  pub fn insert(&mut self, commit: &super::Commit) {
+    let peer = commit.id.peer;
+    let start = commit.id.counter;
+    let len: usize = commit.ops.iter().map(|op| op.content_len()).sum();
     let end = start + len as Counter;
 
     // Hot path: try to extend the last node of this peer.
@@ -201,8 +225,8 @@ impl CausalGraph {
         if node.peer == peer
           && node.end() == start
           && node.state() == NodeState::Pending
-          && change.deps.as_single() == Some(node.id_last())
-          && node.lamport + node.len as Lamport == change.lamport
+          && commit.deps.as_single() == Some(node.id_last())
+          && node.lamport + node.len as Lamport == commit.lamport
         {
           Some(*key)
         } else {
@@ -215,9 +239,9 @@ impl CausalGraph {
 
     if let Some(key) = extend_key {
       self.nodes.get_mut(&key).unwrap().extend(len);
-      self.update_vv_and_frontiers(peer, end, &change.deps);
+      self.update_vv_and_heads(peer, end, &commit.deps);
     } else {
-      let node = CausalNode::new(peer, start, len, change.deps.clone(), change.lamport);
+      let node = CausalNode::new(peer, start, len, commit.deps.clone(), commit.lamport);
       self.insert_node(node);
     }
   }
@@ -231,49 +255,49 @@ impl CausalGraph {
     let end = node.end();
     let deps = node.deps.clone();
     self.nodes.insert(node.id_start(), node);
-    self.update_vv_and_frontiers(peer, end, &deps);
+    self.update_vv_and_heads(peer, end, &deps);
   }
 
-  /// Updates the version vector and frontiers after inserting ops
+  /// Updates the version vector and heads after inserting ops
   /// spanning `[peer, end)` with the given dependencies.
-  fn update_vv_and_frontiers(&mut self, peer: PeerID, end: Counter, deps: &Heads) {
+  fn update_vv_and_heads(&mut self, peer: PeerID, end: Counter, deps: &Heads) {
     if self.vv.get(peer).is_none_or(|c| c < end) {
       self.vv.insert(peer, end);
     }
     for dep in deps.iter() {
-      self.frontiers.remove(&dep);
+      self.heads.remove(&dep);
     }
     let new_last = OpId::new(peer, end - 1);
-    self.frontiers.push(new_last);
+    self.heads.push(new_last);
   }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::core::Change;
+  use crate::core::Commit;
   use crate::operation::{Cmd, Op};
   use crate::types::{ObjectIndex, ObjectType, OpId};
 
-  fn make_change(
+  fn make_commit(
     peer: PeerID,
     counter: Counter,
     len: usize,
     deps: Heads,
     lamport: Lamport,
     from_local: bool,
-  ) -> Change {
+  ) -> Commit {
     let id = OpId::new(peer, counter);
-    let mut change = Change::new(id, lamport, 0, deps, from_local);
+    let mut commit = Commit::new(id, lamport, 0, deps, from_local);
     for i in 0..len {
       let op = Op::new(
         counter + i as Counter,
         ObjectIndex::new(0, ObjectType::Counter),
         Cmd::IncCounter { delta: 1.0 },
       );
-      change.push_op(op);
+      commit.push_op(op);
     }
-    change
+    commit
   }
 
   #[test]
@@ -281,16 +305,16 @@ mod tests {
     let mut cg = CausalGraph::new();
 
     // First change from peer 1.
-    let a = make_change(1, 0, 1, Heads::new(), 0, true);
+    let a = make_commit(1, 0, 1, Heads::new(), 0, true);
     cg.insert(&a);
 
     assert_eq!(cg.node_count(), 1);
     assert!(cg.vv().includes(&OpId::new(1, 0)));
     assert!(!cg.vv().includes(&OpId::new(1, 1)));
-    assert_eq!(cg.frontiers().as_single(), Some(OpId::new(1, 0)));
+    assert_eq!(cg.heads().as_single(), Some(OpId::new(1, 0)));
 
     // Second change from peer 1 is consecutive and linearly dependent.
-    let b = make_change(1, 1, 1, Heads::from_id(OpId::new(1, 0)), 1, true);
+    let b = make_commit(1, 1, 1, Heads::from_id(OpId::new(1, 0)), 1, true);
     cg.insert(&b);
 
     // Should merge into the same node.
@@ -298,25 +322,25 @@ mod tests {
     let node = cg.get(&OpId::new(1, 0)).unwrap();
     assert_eq!(node.len, 2);
     assert!(cg.vv().includes(&OpId::new(1, 1)));
-    assert_eq!(cg.frontiers().as_single(), Some(OpId::new(1, 1)));
+    assert_eq!(cg.heads().as_single(), Some(OpId::new(1, 1)));
   }
 
   #[test]
   fn test_insert_cold_path_creates_new_node() {
     let mut cg = CausalGraph::new();
 
-    let a = make_change(1, 0, 1, Heads::new(), 0, true);
+    let a = make_commit(1, 0, 1, Heads::new(), 0, true);
     cg.insert(&a);
 
     // Change from a different peer cannot be merged.
-    let b = make_change(2, 0, 1, Heads::from_id(OpId::new(1, 0)), 1, false);
+    let b = make_commit(2, 0, 1, Heads::from_id(OpId::new(1, 0)), 1, false);
     cg.insert(&b);
 
     assert_eq!(cg.node_count(), 2);
     // Peer 1 is no longer a head because peer 2 depends on it.
-    assert!(!cg.frontiers().contains(&OpId::new(1, 0)));
-    assert!(cg.frontiers().contains(&OpId::new(2, 0)));
-    assert_eq!(cg.frontiers().len(), 1);
+    assert!(!cg.heads().contains(&OpId::new(1, 0)));
+    assert!(cg.heads().contains(&OpId::new(2, 0)));
+    assert_eq!(cg.heads().len(), 1);
   }
 
   #[test]
@@ -331,7 +355,7 @@ mod tests {
     assert!(cg.get(&OpId::new(1, 2)).is_some());
     assert!(cg.get(&OpId::new(1, 3)).is_none());
     assert_eq!(cg.vv().get_or_zero(1), 3);
-    assert_eq!(cg.frontiers().as_single(), Some(OpId::new(1, 2)));
+    assert_eq!(cg.heads().as_single(), Some(OpId::new(1, 2)));
   }
 
   #[test]
@@ -350,7 +374,7 @@ mod tests {
     );
 
     // Try to insert a consecutive change from the same peer.
-    let change = make_change(1, 2, 1, Heads::from_id(OpId::new(1, 1)), 2, true);
+    let change = make_commit(1, 2, 1, Heads::from_id(OpId::new(1, 1)), 2, true);
     cg.insert(&change);
 
     // Should NOT merge; a new node should be created.
@@ -360,21 +384,21 @@ mod tests {
   }
 
   #[test]
-  fn test_insert_updates_frontiers_correctly() {
+  fn test_insert_updates_heads_correctly() {
     let mut cg = CausalGraph::new();
 
     // Peer 1 inserts two ops.
-    let a = make_change(1, 0, 2, Heads::new(), 0, true);
+    let a = make_commit(1, 0, 2, Heads::new(), 0, true);
     cg.insert(&a);
-    assert_eq!(cg.frontiers().as_single(), Some(OpId::new(1, 1)));
+    assert_eq!(cg.heads().as_single(), Some(OpId::new(1, 1)));
 
     // Peer 2 inserts one op depending on peer 1's latest.
-    let b = make_change(2, 0, 1, Heads::from_id(OpId::new(1, 1)), 2, false);
+    let b = make_commit(2, 0, 1, Heads::from_id(OpId::new(1, 1)), 2, false);
     cg.insert(&b);
 
     // Peer 1's head is replaced by peer 2's head.
-    assert!(!cg.frontiers().contains(&OpId::new(1, 1)));
-    assert!(cg.frontiers().contains(&OpId::new(2, 0)));
-    assert_eq!(cg.frontiers().len(), 1);
+    assert!(!cg.heads().contains(&OpId::new(1, 1)));
+    assert!(cg.heads().contains(&OpId::new(2, 0)));
+    assert_eq!(cg.heads().len(), 1);
   }
 }

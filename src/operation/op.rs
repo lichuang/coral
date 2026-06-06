@@ -7,7 +7,7 @@ pub struct Op {
   /// Absolute counter value within the peer's sequence.
   ///
   /// This is the full counter (not a relative offset) and matches the
-  /// corresponding position in the enclosing [`Change`](crate::core::Change).
+  /// corresponding position in the enclosing [`Commit`](crate::core::Commit).
   pub counter: Counter,
   pub container: ObjectIndex,
   pub cmd: Cmd,

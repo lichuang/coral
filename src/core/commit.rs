@@ -5,24 +5,24 @@ use crate::version::Heads;
 
 /// A group of operations produced by a single peer at one causal moment.
 ///
-/// A `Change` is the atomic unit of collaboration: it bundles one or more
+/// A `Commit` is the atomic unit of collaboration: it bundles one or more
 /// [`Op`]s together with metadata that describes *when* and *after what*
-/// the change happened. Peers exchange `Change`s (not individual `Op`s)
+/// the commit happened. Peers exchange `Commit`s (not individual `Op`s)
 /// during sync.
 ///
 /// # Fields
 ///
-/// - `id` — the starting [`OpId`] (`peer` + `counter`) of this change.
+/// - `id` — the starting [`OpId`] (`peer` + `counter`) of this commit.
 ///   All contained ops share the same `peer` and have consecutive counters.
 /// - `lamport` — Lamport timestamp used for causal ordering.
 /// - `timestamp` — physical wall-clock time (seconds since Unix epoch).
-/// - `deps` — the [`Heads`] this change depends on (the DAG frontier right
-///   before this change was created).
+/// - `deps` — the [`Heads`] this commit depends on (the DAG frontier right
+///   before this commit was created).
 /// - `ops` — the actual operations, stored in a run-length encoded vector.
-/// - `from_local` — `true` if this change originated from the local peer,
+/// - `from_local` — `true` if this commit originated from the local peer,
 ///   `false` if it was imported from a remote peer during sync.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Change {
+pub struct Commit {
   pub id: OpId,
   pub lamport: Lamport,
   pub timestamp: Timestamp,
@@ -31,8 +31,8 @@ pub struct Change {
   pub from_local: bool,
 }
 
-impl Change {
-  /// Creates a new empty `Change` with the given metadata.
+impl Commit {
+  /// Creates a new empty `Commit` with the given metadata.
   pub fn new(
     id: OpId,
     lamport: Lamport,
@@ -50,7 +50,7 @@ impl Change {
     }
   }
 
-  /// Appends an operation to this change.
+  /// Appends an operation to this commit.
   ///
   /// If the new op is mergeable with the last stored op, they are combined
   /// in-place via the [`RleVec`](crate::rle::RleVec) mechanism.

@@ -1,22 +1,104 @@
 use crate::common::{CoralError, CoralResult};
-use crate::types::{ObjectId, ObjectType};
+use crate::types::{Counter, ObjectId, ObjectType, PeerID};
+use rustc_hash::FxHashMap;
 
-use super::{CounterRef, ObjectRegistry};
+use rand::Rng;
+
+use super::{CausalGraph, Commit, History};
+use crate::object::{CounterRef, CounterState, ObjectRegistry};
 
 /// The internal state of a collaborative document.
 ///
-/// `DocInner` holds the actual CRDT state: the causal graph, the change
-/// store, the shared arena, and all container states. It is wrapped by
+/// `DocInner` holds the actual CRDT state: the causal graph, the commit
+/// history, and all container states. It is wrapped by
 /// [`Document`](crate::Document) which provides the public API.
-#[derive(Debug, Default)]
 pub struct DocInner {
+  peer_id: PeerID,
+  next_counter: Counter,
   registry: ObjectRegistry,
+  causal_graph: CausalGraph,
+  counter_states: FxHashMap<crate::types::ObjectIndex, CounterState>,
+  history: History,
+}
+
+impl std::fmt::Debug for DocInner {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("DocInner")
+      .field("peer_id", &self.peer_id)
+      .field("next_counter", &self.next_counter)
+      .field("registry", &self.registry)
+      .field("causal_graph", &self.causal_graph)
+      .finish()
+  }
+}
+
+impl Default for DocInner {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl DocInner {
-  /// Creates a new empty `DocInner`.
+  /// Creates a new `DocInner` with a randomly generated peer ID.
   pub fn new() -> Self {
-    Self::default()
+    let peer_id = rand::rng().random();
+    Self {
+      peer_id,
+      next_counter: 0,
+      registry: ObjectRegistry::new(),
+      causal_graph: CausalGraph::new(),
+      counter_states: FxHashMap::default(),
+      history: History::new(),
+    }
+  }
+
+  /// Returns the peer ID of this document.
+  pub fn peer_id(&self) -> PeerID {
+    self.peer_id
+  }
+
+  /// Returns a reference to the causal graph.
+  pub fn causal_graph(&self) -> &CausalGraph {
+    &self.causal_graph
+  }
+
+  /// Returns a mutable reference to the causal graph.
+  pub fn causal_graph_mut(&mut self) -> &mut CausalGraph {
+    &mut self.causal_graph
+  }
+
+  /// Returns a reference to the commit history.
+  pub fn history(&self) -> &History {
+    &self.history
+  }
+
+  /// Appends a commit to the history.
+  pub fn push_to_history(&mut self, commit: Commit) {
+    self.history.push(commit);
+  }
+
+  /// Returns a reference to the counter state for the given container, if any.
+  pub fn counter_state(&self, index: crate::types::ObjectIndex) -> Option<&CounterState> {
+    self.counter_states.get(&index)
+  }
+
+  /// Returns a mutable reference to the counter state for the given container,
+  /// creating one if it does not exist.
+  pub fn counter_state_mut(&mut self, index: crate::types::ObjectIndex) -> &mut CounterState {
+    self.counter_states.entry(index).or_default()
+  }
+
+  /// Returns a reference to the object registry.
+  pub fn registry(&self) -> &ObjectRegistry {
+    &self.registry
+  }
+
+  /// Allocates and returns the next counter for this peer, incrementing
+  /// the internal counter in the process.
+  pub fn alloc_counter(&mut self) -> Counter {
+    let c = self.next_counter;
+    self.next_counter += 1;
+    c
   }
 
   /// Returns a reference to the counter object with the given name.
