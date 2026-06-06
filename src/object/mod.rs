@@ -4,9 +4,10 @@ pub mod state;
 pub use registry::ObjectRegistry;
 pub use state::ObjectState;
 
-use crate::core::{Commit, DocInner};
+use crate::common::CoralResult;
+use crate::core::{CommitBuilder, DocInner};
 use crate::operation::{Cmd, Op};
-use crate::types::{ObjectIndex, OpId, Timestamp};
+use crate::types::ObjectIndex;
 
 /// Type markers for [`ObjectRef`].
 ///
@@ -65,27 +66,12 @@ impl ObjectRef<'_, marker::Counter> {
   /// Creates a new [`Op`], wraps it in a [`Commit`](super::Commit), inserts
   /// the commit into the causal graph, appends it to the history, and applies
   /// the delta to the counter state.
-  pub fn increment(&mut self, delta: f64) {
-    let peer_id = self.doc.peer_id();
-    let counter = self.doc.alloc_counter();
-    let lamport = self.doc.causal_graph().calc_next_lamport();
-    let deps = self.doc.causal_graph().heads().clone();
-
-    let op = Op::new(counter, self.index, Cmd::IncCounter { delta });
-
-    self.doc.state_mut(self.index).apply(&op).unwrap();
-
-    let mut commit = Commit::new(
-      OpId::new(peer_id, counter),
-      lamport,
-      0 as Timestamp,
-      deps,
-      true,
-    );
-    commit.push_op(op);
-
-    self.doc.causal_graph_mut().insert(&commit);
-    self.doc.push_to_history(commit);
+  pub fn increment(&mut self, delta: f64) -> CoralResult<()> {
+    let mut builder = CommitBuilder::new(self.doc);
+    let op = Op::new(builder.counter(), self.index, Cmd::IncCounter { delta });
+    builder.apply(self.index, &op)?;
+    builder.finish(op);
+    Ok(())
   }
 }
 
@@ -101,13 +87,13 @@ mod increment_tests {
 
     assert_eq!(counter.value(), 0.0);
 
-    counter.increment(1.0);
+    counter.increment(1.0).unwrap();
     assert_eq!(counter.value(), 1.0);
 
-    counter.increment(2.5);
+    counter.increment(2.5).unwrap();
     assert_eq!(counter.value(), 3.5);
 
-    counter.increment(-0.5);
+    counter.increment(-0.5).unwrap();
     assert_eq!(counter.value(), 3.0);
   }
 
@@ -117,8 +103,8 @@ mod increment_tests {
     let peer_id = doc.peer_id();
     let mut counter = doc.get_counter("score").unwrap();
 
-    counter.increment(10.0);
-    counter.increment(20.0);
+    counter.increment(10.0).unwrap();
+    counter.increment(20.0).unwrap();
 
     let cg = doc.causal_graph();
     assert_eq!(cg.node_count(), 1);
@@ -135,9 +121,9 @@ mod increment_tests {
     let mut doc = Document::new();
     let mut counter = doc.get_counter("views").unwrap();
 
-    counter.increment(1.0);
-    counter.increment(1.0);
-    counter.increment(1.0);
+    counter.increment(1.0).unwrap();
+    counter.increment(1.0).unwrap();
+    counter.increment(1.0).unwrap();
 
     assert_eq!(doc.history().len(), 3);
   }
@@ -148,11 +134,11 @@ mod increment_tests {
 
     {
       let mut a = doc.get_counter("a").unwrap();
-      a.increment(5.0);
+      a.increment(5.0).unwrap();
     }
     {
       let mut b = doc.get_counter("b").unwrap();
-      b.increment(10.0);
+      b.increment(10.0).unwrap();
     }
 
     let a = doc.get_counter("a").unwrap();
@@ -167,11 +153,11 @@ mod increment_tests {
     let mut doc = Document::new();
     let mut counter = doc.get_counter("x").unwrap();
 
-    counter.increment(0.0);
+    counter.increment(0.0).unwrap();
     assert_eq!(counter.value(), 0.0);
 
-    counter.increment(5.0);
-    counter.increment(0.0);
+    counter.increment(5.0).unwrap();
+    counter.increment(0.0).unwrap();
     assert_eq!(counter.value(), 5.0);
   }
 
@@ -180,9 +166,9 @@ mod increment_tests {
     let mut doc = Document::new();
     let mut counter = doc.get_counter("balance").unwrap();
 
-    counter.increment(100.0);
-    counter.increment(-30.0);
-    counter.increment(-70.0);
+    counter.increment(100.0).unwrap();
+    counter.increment(-30.0).unwrap();
+    counter.increment(-70.0).unwrap();
     assert_eq!(counter.value(), 0.0);
   }
 
@@ -191,8 +177,8 @@ mod increment_tests {
     let mut doc = Document::new();
     let mut counter = doc.get_counter("big").unwrap();
 
-    counter.increment(1e15);
-    counter.increment(1.0);
+    counter.increment(1e15).unwrap();
+    counter.increment(1.0).unwrap();
     assert_eq!(counter.value(), 1e15 + 1.0);
   }
 
@@ -202,13 +188,13 @@ mod increment_tests {
 
     {
       let mut counter = doc.get_counter("session").unwrap();
-      counter.increment(1.0);
-      counter.increment(2.0);
+      counter.increment(1.0).unwrap();
+      counter.increment(2.0).unwrap();
     }
 
     {
       let mut counter = doc.get_counter("session").unwrap();
-      counter.increment(3.0);
+      counter.increment(3.0).unwrap();
     }
 
     let counter = doc.get_counter("session").unwrap();
@@ -221,9 +207,9 @@ mod increment_tests {
     let peer_id = doc.peer_id();
     let mut counter = doc.get_counter("seq").unwrap();
 
-    counter.increment(1.0);
-    counter.increment(2.0);
-    counter.increment(3.0);
+    counter.increment(1.0).unwrap();
+    counter.increment(2.0).unwrap();
+    counter.increment(3.0).unwrap();
 
     let history = doc.history();
     let commits = history.iter().collect::<Vec<_>>();
@@ -239,8 +225,8 @@ mod increment_tests {
     let mut doc = Document::new();
     let mut counter = doc.get_counter("tick").unwrap();
 
-    counter.increment(1.0);
-    counter.increment(1.0);
+    counter.increment(1.0).unwrap();
+    counter.increment(1.0).unwrap();
 
     let history = doc.history();
     let commits: Vec<_> = history.iter().collect();
@@ -255,7 +241,7 @@ mod increment_tests {
 
     {
       let mut counter = doc.get_counter("chain").unwrap();
-      counter.increment(1.0);
+      counter.increment(1.0).unwrap();
     }
     assert_eq!(
       doc.causal_graph().heads().as_single(),
@@ -264,7 +250,7 @@ mod increment_tests {
 
     {
       let mut counter = doc.get_counter("chain").unwrap();
-      counter.increment(1.0);
+      counter.increment(1.0).unwrap();
     }
     assert_eq!(
       doc.causal_graph().heads().as_single(),

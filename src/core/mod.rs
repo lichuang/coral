@@ -1,8 +1,10 @@
 pub mod causal;
 pub mod commit;
+pub mod commit_builder;
 pub mod doc_inner;
 pub mod history;
 pub use causal::CausalGraph;
 pub use commit::Commit;
+pub use commit_builder::CommitBuilder;
 pub use doc_inner::DocInner;
 pub use history::History;
