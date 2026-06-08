@@ -34,6 +34,16 @@ impl ObjectRegistry {
     self.by_index.get(index.index() as usize)
   }
 
+  /// Looks up the [`ObjectId`] by raw sequence number.
+  pub fn get_by_index_from(&self, seq: usize) -> Option<&ObjectId> {
+    self.by_index.get(seq)
+  }
+
+  /// Returns the total number of registered objects.
+  pub fn object_count(&self) -> usize {
+    self.by_index.len()
+  }
+
   /// Allocates a new globally unique [`ObjectIndex`] for a root-level object
   /// and registers all mappings.
   pub fn alloc_root(&mut self, name: String, id: ObjectId) -> ObjectIndex {

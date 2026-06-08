@@ -15,7 +15,13 @@ pub enum ObjectId {
 }
 
 impl ObjectId {
-  /// Returns the [`ObjectType`] of this object.
+  pub fn name(&self) -> &str {
+    match self {
+      ObjectId::Root { name, .. } => name,
+      ObjectId::Node { .. } => "",
+    }
+  }
+
   pub fn typ(&self) -> ObjectType {
     match self {
       ObjectId::Root { typ, .. } => *typ,
@@ -28,7 +34,8 @@ impl ObjectId {
 ///
 /// Objects are the building blocks of collaborative documents.
 /// Each object type has its own conflict resolution semantics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ObjectType {
   /// A counter that supports increments and decrements (PN-Counter).
   Counter,

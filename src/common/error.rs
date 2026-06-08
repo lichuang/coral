@@ -18,6 +18,16 @@ pub enum CoralError {
   /// An operation was applied to a container that cannot handle it.
   #[error("invalid operation for container: {0}")]
   InvalidOperation(String),
+
+  /// JSON serialization or deserialization error.
+  #[error("JSON error: {0}")]
+  Json(String),
+}
+
+impl From<serde_json::Error> for CoralError {
+  fn from(e: serde_json::Error) -> Self {
+    CoralError::Json(e.to_string())
+  }
 }
 
 /// Convenience alias for `Result<T, CoralError>`.

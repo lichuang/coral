@@ -2,6 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 pub mod common;
 pub mod core;
+pub mod encoding;
 pub mod memory;
 pub mod object;
 pub mod operation;
@@ -34,6 +35,15 @@ impl Document {
   /// The object must already exist and be a counter.
   pub fn get_counter(&mut self, name: &str) -> CoralResult<CounterRef<'_>> {
     self.inner.get_counter(name)
+  }
+
+  /// Exports the full document state as a JSON string.
+  ///
+  /// The JSON includes all registered objects, the commit history, and the
+  /// current causal graph heads. It can be used for debugging, persistence,
+  /// or transmission to another peer.
+  pub fn export_json(&self) -> CoralResult<String> {
+    encoding::export_json(&self.inner)
   }
 }
 
