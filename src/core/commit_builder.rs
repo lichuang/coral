@@ -1,51 +1,69 @@
-use crate::common::CoralResult;
 use crate::operation::Op;
-use crate::types::{Counter, Lamport, ObjectIndex, OpId, PeerID, Timestamp};
+use crate::rle::RleVec;
+use crate::types::{Lamport, OpId, PeerID};
 use crate::version::Heads;
 
-use super::{Commit, DocInner};
+use super::Commit;
 
-pub struct CommitBuilder<'a> {
-  doc: &'a mut DocInner,
+/// Accumulates operations for a pending transaction.
+///
+/// `CommitBuilder` lives inside [`DocInner`](super::DocInner) as an
+/// `Option<CommitBuilder>`. Operations are pushed into it as they happen;
+/// when the user calls `commit()`, the accumulated ops are converted into a
+/// single [`Commit`].
+pub struct CommitBuilder {
   peer_id: PeerID,
-  counter: Counter,
   lamport: Lamport,
   deps: Heads,
+  ops: RleVec<Op>,
 }
 
-impl<'a> CommitBuilder<'a> {
-  pub fn new(doc: &'a mut DocInner) -> Self {
-    let peer_id = doc.peer_id();
-    let counter = doc.alloc_counter();
-    let lamport = doc.causal_graph().calc_next_lamport();
-    let deps = doc.causal_graph().heads().clone();
+impl std::fmt::Debug for CommitBuilder {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("CommitBuilder")
+      .field("peer_id", &self.peer_id)
+      .field("lamport", &self.lamport)
+      .field("deps", &self.deps)
+      .field("ops_len", &self.ops.len())
+      .finish()
+  }
+}
+
+impl CommitBuilder {
+  /// Creates a new `CommitBuilder` with the given metadata and no ops.
+  pub fn new(peer_id: PeerID, lamport: Lamport, deps: Heads) -> Self {
     Self {
-      doc,
       peer_id,
-      counter,
       lamport,
       deps,
+      ops: RleVec::new(),
     }
   }
 
-  pub fn counter(&self) -> Counter {
-    self.counter
+  /// Returns `true` if no ops have been pushed.
+  pub fn is_empty(&self) -> bool {
+    self.ops.is_empty()
   }
 
-  pub fn apply(&mut self, index: ObjectIndex, op: &Op) -> CoralResult<()> {
-    self.doc.state_mut(index).apply(op)
+  /// Pushes an op into the pending transaction.
+  ///
+  /// If the op is mergeable with the last stored op (same container,
+  /// consecutive counter, mergeable command), they are combined in-place.
+  pub fn push_op(&mut self, op: Op) {
+    self.ops.push(op);
   }
 
-  pub fn finish(self, op: Op) {
-    let mut commit = Commit::new(
-      OpId::new(self.peer_id, self.counter),
-      self.lamport,
-      0 as Timestamp,
-      self.deps,
-      true,
-    );
-    commit.push_op(op);
-    self.doc.causal_graph_mut().insert(&commit);
-    self.doc.push_to_history(commit);
+  /// Consumes the builder and returns a [`Commit`] if any ops were pushed,
+  /// or `None` if the transaction was empty.
+  pub fn into_commit(self) -> Option<Commit> {
+    let first_op = self.ops.first()?;
+    Some(Commit {
+      id: OpId::new(self.peer_id, first_op.counter),
+      lamport: self.lamport,
+      timestamp: 0,
+      deps: self.deps,
+      ops: self.ops,
+      from_local: true,
+    })
   }
 }

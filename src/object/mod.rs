@@ -5,8 +5,8 @@ pub use registry::ObjectRegistry;
 pub use state::ObjectState;
 
 use crate::common::CoralResult;
-use crate::core::{CommitBuilder, DocInner};
-use crate::operation::{Cmd, Op};
+use crate::core::DocInner;
+use crate::operation::Cmd;
 use crate::types::ObjectIndex;
 
 /// Type markers for [`ObjectRef`].
@@ -63,15 +63,13 @@ impl ObjectRef<'_, marker::Counter> {
 
   /// Increments the counter by `delta`.
   ///
-  /// Creates a new [`Op`], wraps it in a [`Commit`](super::Commit), inserts
-  /// the commit into the causal graph, appends it to the history, and applies
-  /// the delta to the counter state.
+  /// The op is applied to the counter state immediately (so `value()` reflects
+  /// the change), but the [`Commit`](super::Commit) is not created until
+  /// [`Document::commit()`](crate::Document::commit) is called.
   pub fn increment(&mut self, delta: f64) -> CoralResult<()> {
-    let mut builder = CommitBuilder::new(self.doc);
-    let op = Op::new(builder.counter(), self.index, Cmd::IncCounter { delta });
-    builder.apply(self.index, &op)?;
-    builder.finish(op);
-    Ok(())
+    self
+      .doc
+      .push_local_op(self.index, Cmd::IncCounter { delta })
   }
 }
 
@@ -105,6 +103,7 @@ mod increment_tests {
 
     counter.increment(10.0).unwrap();
     counter.increment(20.0).unwrap();
+    doc.commit();
 
     let cg = doc.causal_graph();
     assert_eq!(cg.node_count(), 1);
@@ -124,8 +123,9 @@ mod increment_tests {
     counter.increment(1.0).unwrap();
     counter.increment(1.0).unwrap();
     counter.increment(1.0).unwrap();
+    doc.commit();
 
-    assert_eq!(doc.history().len(), 3);
+    assert_eq!(doc.history().len(), 1);
   }
 
   #[test]
@@ -210,14 +210,13 @@ mod increment_tests {
     counter.increment(1.0).unwrap();
     counter.increment(2.0).unwrap();
     counter.increment(3.0).unwrap();
+    doc.commit();
 
     let history = doc.history();
     let commits = history.iter().collect::<Vec<_>>();
-    assert_eq!(commits.len(), 3);
-
+    assert_eq!(commits.len(), 1);
     assert_eq!(commits[0].id, OpId::new(peer_id, 0));
-    assert_eq!(commits[1].id, OpId::new(peer_id, 1));
-    assert_eq!(commits[2].id, OpId::new(peer_id, 2));
+    assert_eq!(commits[0].ops.len(), 3);
   }
 
   #[test]
@@ -227,11 +226,12 @@ mod increment_tests {
 
     counter.increment(1.0).unwrap();
     counter.increment(1.0).unwrap();
+    doc.commit();
 
     let history = doc.history();
     let commits: Vec<_> = history.iter().collect();
+    assert_eq!(commits.len(), 1);
     assert_eq!(commits[0].lamport, 0);
-    assert_eq!(commits[1].lamport, 1);
   }
 
   #[test]
@@ -243,6 +243,7 @@ mod increment_tests {
       let mut counter = doc.get_counter("chain").unwrap();
       counter.increment(1.0).unwrap();
     }
+    doc.commit();
     assert_eq!(
       doc.causal_graph().heads().as_single(),
       Some(OpId::new(peer_id, 0))
@@ -252,6 +253,7 @@ mod increment_tests {
       let mut counter = doc.get_counter("chain").unwrap();
       counter.increment(1.0).unwrap();
     }
+    doc.commit();
     assert_eq!(
       doc.causal_graph().heads().as_single(),
       Some(OpId::new(peer_id, 1))

@@ -37,12 +37,21 @@ impl Document {
     self.inner.get_counter(name)
   }
 
+  /// Commits all pending operations into the history and causal graph.
+  ///
+  /// Operations (e.g. [`CounterRef::increment`]) are applied to the
+  /// document state immediately but are not recorded as a
+  /// [`Commit`](core::Commit) until this method is called.
+  pub fn commit(&mut self) {
+    self.inner.commit();
+  }
+
   /// Exports the full document state as a JSON string.
   ///
-  /// The JSON includes all registered objects, the commit history, and the
-  /// current causal graph heads. It can be used for debugging, persistence,
-  /// or transmission to another peer.
-  pub fn export_json(&self) -> CoralResult<String> {
+  /// Commits any pending operations first so the output reflects the
+  /// latest state.
+  pub fn export_json(&mut self) -> CoralResult<String> {
+    self.inner.commit();
     encoding::export_json(&self.inner)
   }
 }
@@ -50,6 +59,12 @@ impl Document {
 impl Default for Document {
   fn default() -> Self {
     Self::new()
+  }
+}
+
+impl Drop for Document {
+  fn drop(&mut self) {
+    self.inner.commit();
   }
 }
 

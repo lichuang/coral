@@ -1,11 +1,12 @@
 use crate::common::{CoralError, CoralResult};
 use crate::object::{CounterRef, ObjectRegistry, ObjectState};
+use crate::operation::{Cmd, Op};
 use crate::types::{Counter, ObjectId, ObjectIndex, ObjectType, PeerID};
 use rustc_hash::FxHashMap;
 
 use rand::Rng;
 
-use super::{CausalGraph, Commit, History};
+use super::{CausalGraph, CommitBuilder, History};
 
 /// The internal state of a collaborative document.
 ///
@@ -19,6 +20,7 @@ pub struct DocInner {
   causal_graph: CausalGraph,
   states: FxHashMap<ObjectIndex, ObjectState>,
   history: History,
+  commit_builder: Option<CommitBuilder>,
 }
 
 impl std::fmt::Debug for DocInner {
@@ -49,63 +51,70 @@ impl DocInner {
       causal_graph: CausalGraph::new(),
       states: FxHashMap::default(),
       history: History::new(),
+      commit_builder: None,
     }
   }
 
-  /// Returns the peer ID of this document.
   pub fn peer_id(&self) -> PeerID {
     self.peer_id
   }
 
-  /// Returns a reference to the causal graph.
   pub fn causal_graph(&self) -> &CausalGraph {
     &self.causal_graph
   }
 
-  /// Returns a mutable reference to the causal graph.
   pub fn causal_graph_mut(&mut self) -> &mut CausalGraph {
     &mut self.causal_graph
   }
 
-  /// Returns a reference to the commit history.
   pub fn history(&self) -> &History {
     &self.history
   }
 
-  /// Appends a commit to the history.
-  pub fn push_to_history(&mut self, commit: Commit) {
-    self.history.push(commit);
-  }
-
-  /// Returns a reference to the state for the given container, if any.
   pub fn state(&self, index: ObjectIndex) -> Option<&ObjectState> {
     self.states.get(&index)
   }
 
-  /// Returns a mutable reference to the state for the given container,
-  /// creating one if it does not exist.
   pub fn state_mut(&mut self, index: ObjectIndex) -> &mut ObjectState {
     self.states.entry(index).or_default()
   }
 
-  /// Returns a reference to the object registry.
   pub fn registry(&self) -> &ObjectRegistry {
     &self.registry
   }
 
-  /// Allocates and returns the next counter for this peer, incrementing
-  /// the internal counter in the process.
-  pub fn alloc_counter(&mut self) -> Counter {
+  fn alloc_counter(&mut self) -> Counter {
     let c = self.next_counter;
     self.next_counter += 1;
     c
   }
 
-  /// Returns a reference to the counter object with the given name.
-  ///
-  /// If the object does not yet exist, a new entry is allocated in the
-  /// registry. If the name is already used by a different type, returns
-  /// a type mismatch error.
+  fn ensure_pending(&mut self) {
+    if self.commit_builder.is_none() {
+      let lamport = self.causal_graph.calc_next_lamport();
+      let deps = self.causal_graph.heads().clone();
+      self.commit_builder = Some(CommitBuilder::new(self.peer_id, lamport, deps));
+    }
+  }
+
+  pub fn push_local_op(&mut self, index: ObjectIndex, cmd: Cmd) -> CoralResult<()> {
+    self.ensure_pending();
+    let counter = self.alloc_counter();
+    let op = Op::new(counter, index, cmd);
+    self.state_mut(index).apply(&op)?;
+    self.commit_builder.as_mut().unwrap().push_op(op);
+    Ok(())
+  }
+
+  pub fn commit(&mut self) {
+    if let Some(builder) = self.commit_builder.take()
+      && let Some(commit) = builder.into_commit()
+    {
+      self.causal_graph.insert(&commit);
+      self.history.push(commit);
+    }
+  }
+
   pub fn get_counter(&mut self, name: &str) -> CoralResult<CounterRef<'_>> {
     if let Some(index) = self.registry.get_root(name) {
       let typ = index.typ()?;

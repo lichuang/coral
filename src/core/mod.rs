@@ -5,6 +5,6 @@ pub mod doc_inner;
 pub mod history;
 pub use causal::CausalGraph;
 pub use commit::Commit;
-pub use commit_builder::CommitBuilder;
+pub(crate) use commit_builder::CommitBuilder;
 pub use doc_inner::DocInner;
 pub use history::History;
