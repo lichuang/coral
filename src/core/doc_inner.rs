@@ -1,7 +1,9 @@
 use crate::common::{CoralError, CoralResult};
+use crate::core::Commit;
 use crate::object::{CounterRef, ObjectRegistry, ObjectState};
 use crate::operation::{Cmd, Op};
 use crate::types::{Counter, ObjectId, ObjectIndex, ObjectType, PeerID};
+use crate::version::VersionVector;
 use rustc_hash::FxHashMap;
 
 use rand::Rng;
@@ -71,6 +73,14 @@ impl DocInner {
     &self.commit_store
   }
 
+  pub fn iter_commits_in_range<F>(&self, start_vv: &VersionVector, end_vv: &VersionVector, f: F)
+  where
+    F: FnMut(&Commit),
+  {
+    let diff = end_vv.diff_from(start_vv);
+    self.commit_store.iter_diff(&diff, f);
+  }
+
   pub fn state(&self, index: ObjectIndex) -> Option<&ObjectState> {
     self.states.get(&index)
   }
@@ -135,5 +145,118 @@ impl DocInner {
     };
     let index = self.registry.alloc_root(name.to_string(), id);
     Ok(CounterRef::new(self, index))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::Document;
+  use crate::types::OpId;
+
+  fn collect_commits(
+    doc: &Document,
+    start_vv: &VersionVector,
+    end_vv: &VersionVector,
+  ) -> Vec<Commit> {
+    let mut result = Vec::new();
+    doc.iter_commits_in_range(start_vv, end_vv, |c| result.push(c.clone()));
+    result
+  }
+
+  #[test]
+  fn test_iter_commits_in_range_full() {
+    let mut doc = Document::new();
+
+    {
+      let mut counter = doc.get_counter("c").unwrap();
+      counter.increment(1.0).unwrap();
+      counter.increment(1.0).unwrap();
+    }
+    doc.commit();
+
+    {
+      let mut counter = doc.get_counter("c").unwrap();
+      counter.increment(1.0).unwrap();
+    }
+    doc.commit();
+
+    let start_vv = VersionVector::new();
+    let end_vv = doc.causal_graph().vv().clone();
+    let result = collect_commits(&doc, &start_vv, &end_vv);
+    assert_eq!(result.len(), 2);
+  }
+
+  #[test]
+  fn test_iter_commits_in_range_partial() {
+    let mut doc = Document::new();
+    let peer = doc.peer_id();
+
+    // commit A: ops [0, 3)
+    {
+      let mut counter = doc.get_counter("c").unwrap();
+      counter.increment(1.0).unwrap();
+      counter.increment(1.0).unwrap();
+      counter.increment(1.0).unwrap();
+    }
+    doc.commit();
+
+    // commit B: ops [3, 5)
+    {
+      let mut counter = doc.get_counter("c").unwrap();
+      counter.increment(1.0).unwrap();
+      counter.increment(1.0).unwrap();
+    }
+    doc.commit();
+
+    // iterate [0, 3) — should only get commit A
+    let start_vv = VersionVector::new();
+    let mut end_vv = VersionVector::new();
+    end_vv.insert(peer, 3);
+
+    let result = collect_commits(&doc, &start_vv, &end_vv);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].id, OpId::new(peer, 0));
+    assert_eq!(result[0].end_counter(), 3);
+  }
+
+  #[test]
+  fn test_iter_commits_in_range_empty_diff() {
+    let mut doc = Document::new();
+    let peer = doc.peer_id();
+
+    {
+      let mut counter = doc.get_counter("c").unwrap();
+      counter.increment(1.0).unwrap();
+    }
+    doc.commit();
+
+    let mut vv = VersionVector::new();
+    vv.insert(peer, 1);
+    let mut count = 0;
+    doc.iter_commits_in_range(&vv, &vv, |_| count += 1);
+    assert_eq!(count, 0);
+  }
+
+  #[test]
+  fn test_iter_commits_in_range_end_equals_current() {
+    let mut doc = Document::new();
+    let peer = doc.peer_id();
+
+    {
+      let mut counter = doc.get_counter("c").unwrap();
+      counter.increment(1.0).unwrap();
+      counter.increment(1.0).unwrap();
+      counter.increment(1.0).unwrap();
+    }
+    doc.commit();
+
+    let mut start_vv = VersionVector::new();
+    start_vv.insert(peer, 1);
+    let end_vv = doc.causal_graph().vv().clone();
+
+    let result = collect_commits(&doc, &start_vv, &end_vv);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].id, OpId::new(peer, 0));
   }
 }

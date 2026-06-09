@@ -3,7 +3,7 @@ use serde::Serialize;
 use crate::common::CoralResult;
 use crate::core::DocInner;
 use crate::operation::Cmd;
-use crate::types::{Counter, ObjectId, PeerID};
+use crate::types::{Counter, Lamport, ObjectId, PeerID, Timestamp};
 use crate::version::Heads;
 
 #[derive(Serialize)]
@@ -15,8 +15,8 @@ pub struct JsonSchema {
 #[derive(Serialize)]
 struct JsonCommit {
   id: JsonOpId,
-  lamport: crate::types::Lamport,
-  timestamp: crate::types::Timestamp,
+  lamport: Lamport,
+  timestamp: Timestamp,
   deps: Vec<JsonOpId>,
   ops: Vec<JsonOp>,
 }

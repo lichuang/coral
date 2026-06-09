@@ -60,44 +60,42 @@ impl CommitStore {
   ///    starts before `span.start` but extends into the range.
   /// 2. Scan forward from that point (or from `span.start`) up to
   ///    `OpId(peer, span.end)`.
-  pub fn query(&self, span: &IdSpan) -> Vec<&Commit> {
+  pub fn iter_span<F>(&self, span: &IdSpan, mut f: F)
+  where
+    F: FnMut(&Commit),
+  {
     if span.is_empty() {
-      return vec![];
+      return;
     }
 
-    let mut result = Vec::new();
     let span_start_key = OpId::new(span.peer, span.start);
     let span_end_key = OpId::new(span.peer, span.end);
 
-    // Check if a commit starting before span.start extends into the range.
     if let Some((key, commit)) = self.inner.range(..span_start_key).next_back()
       && key.peer == span.peer
       && commit.end_counter() > span.start
     {
-      result.push(commit);
+      f(commit);
     }
 
-    // Scan forward from span.start (inclusive) to span.end (exclusive).
-    // All entries in this range are from the same peer due to OpId ordering.
     for (_key, commit) in self.inner.range(span_start_key..span_end_key) {
-      result.push(commit);
+      f(commit);
     }
-
-    result
   }
 
   /// Finds all commits overlapping with any span in the given diff, deduplicated.
-  pub fn query_diff(&self, diff: &VersionVectorDiff) -> Vec<&Commit> {
+  pub fn iter_diff<F>(&self, diff: &VersionVectorDiff, mut f: F)
+  where
+    F: FnMut(&Commit),
+  {
     let mut seen = std::collections::BTreeSet::new();
-    let mut result = Vec::new();
     for span in &diff.spans {
-      for commit in self.query(span) {
+      self.iter_span(span, |commit| {
         if seen.insert(commit.id) {
-          result.push(commit);
+          f(commit);
         }
-      }
+      });
     }
-    result
   }
 }
 
@@ -106,21 +104,21 @@ mod tests {
   use super::*;
   use crate::core::commit::Commit;
   use crate::operation::{Cmd, Op};
-  use crate::types::{ObjectIndex, ObjectType};
+  use crate::types::{Counter, Lamport, ObjectIndex, ObjectType, PeerID};
   use crate::version::Heads;
 
   fn make_commit(
-    peer: crate::types::PeerID,
-    counter: crate::types::Counter,
+    peer: PeerID,
+    counter: Counter,
     num_ops: usize,
     deps: Heads,
-    lamport: crate::types::Lamport,
+    lamport: Lamport,
   ) -> Commit {
     let id = OpId::new(peer, counter);
     let mut commit = Commit::new(id, lamport, 0, deps, true);
     for i in 0..num_ops {
       let op = Op::new(
-        counter + i as crate::types::Counter,
+        counter + i as Counter,
         ObjectIndex::new(0, ObjectType::Counter),
         Cmd::IncCounter { delta: 1.0 },
       );
@@ -141,80 +139,84 @@ mod tests {
   }
 
   #[test]
-  fn test_query_single_commit_fully_contained() {
+  fn test_iter_span_single_commit_fully_contained() {
     let mut store = CommitStore::new();
     store.insert(make_commit(1, 0, 5, Heads::new(), 0));
 
     let span = IdSpan::new(1, 0, 5);
-    let result = store.query(&span);
+    let mut result = Vec::new();
+    store.iter_span(&span, |c| result.push(c.id));
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].id, OpId::new(1, 0));
+    assert_eq!(result[0], OpId::new(1, 0));
   }
 
   #[test]
-  fn test_query_commit_extends_before_span() {
+  fn test_iter_span_commit_extends_before_span() {
     let mut store = CommitStore::new();
-    // commit covers [0, 10)
     store.insert(make_commit(1, 0, 10, Heads::new(), 0));
 
     let span = IdSpan::new(1, 5, 15);
-    let result = store.query(&span);
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].end_counter(), 10);
+    let mut end = 0;
+    store.iter_span(&span, |c| end = c.end_counter());
+    assert_eq!(end, 10);
   }
 
   #[test]
-  fn test_query_span_between_commits() {
+  fn test_iter_span_gap_between_commits() {
     let mut store = CommitStore::new();
     store.insert(make_commit(1, 0, 3, Heads::new(), 0));
     store.insert(make_commit(1, 10, 3, Heads::new(), 1));
 
-    // gap between [3, 10) — no commit there
     let span = IdSpan::new(1, 3, 10);
-    let result = store.query(&span);
-    assert!(result.is_empty());
+    let mut count = 0;
+    store.iter_span(&span, |_| count += 1);
+    assert_eq!(count, 0);
   }
 
   #[test]
-  fn test_query_multiple_commits() {
+  fn test_iter_span_multiple_commits() {
     let mut store = CommitStore::new();
     store.insert(make_commit(1, 0, 5, Heads::new(), 0));
     store.insert(make_commit(1, 5, 5, Heads::new(), 1));
     store.insert(make_commit(1, 10, 5, Heads::new(), 2));
 
     let span = IdSpan::new(1, 3, 12);
-    let result = store.query(&span);
-    assert_eq!(result.len(), 3);
+    let mut count = 0;
+    store.iter_span(&span, |_| count += 1);
+    assert_eq!(count, 3);
   }
 
   #[test]
-  fn test_query_wrong_peer() {
+  fn test_iter_span_wrong_peer() {
     let mut store = CommitStore::new();
     store.insert(make_commit(1, 0, 5, Heads::new(), 0));
 
     let span = IdSpan::new(2, 0, 5);
-    let result = store.query(&span);
-    assert!(result.is_empty());
+    let mut count = 0;
+    store.iter_span(&span, |_| count += 1);
+    assert_eq!(count, 0);
   }
 
   #[test]
-  fn test_query_empty_span() {
+  fn test_iter_span_empty() {
     let mut store = CommitStore::new();
     store.insert(make_commit(1, 0, 5, Heads::new(), 0));
 
     let span = IdSpan::new(1, 3, 3);
-    let result = store.query(&span);
-    assert!(result.is_empty());
+    let mut count = 0;
+    store.iter_span(&span, |_| count += 1);
+    assert_eq!(count, 0);
   }
 
   #[test]
-  fn test_query_diff_deduplicates() {
+  fn test_iter_diff_deduplicates() {
     let mut store = CommitStore::new();
     store.insert(make_commit(1, 0, 10, Heads::new(), 0));
 
     // Two overlapping spans both covering the same commit
     let diff = VersionVectorDiff::new(vec![IdSpan::new(1, 0, 5), IdSpan::new(1, 3, 10)]);
-    let result = store.query_diff(&diff);
-    assert_eq!(result.len(), 1);
+    let mut count = 0;
+    store.iter_diff(&diff, |_| count += 1);
+    assert_eq!(count, 1);
   }
 }
