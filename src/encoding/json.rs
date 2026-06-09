@@ -4,7 +4,7 @@ use crate::common::CoralResult;
 use crate::core::DocInner;
 use crate::operation::Cmd;
 use crate::types::{Counter, Lamport, ObjectId, PeerID, Timestamp};
-use crate::version::Heads;
+use crate::version::{Heads, VersionVector};
 
 #[derive(Serialize)]
 pub struct JsonSchema {
@@ -39,11 +39,17 @@ enum JsonCmd {
   IncCounter { delta: f64 },
 }
 
-pub fn build_schema(doc: &DocInner) -> CoralResult<JsonSchema> {
+const SCHEMA_VERSION: u8 = 1;
+
+pub fn build_schema(
+  doc: &DocInner,
+  start_vv: &VersionVector,
+  end_vv: &VersionVector,
+) -> CoralResult<JsonSchema> {
   let registry = doc.registry();
 
   let mut commits = Vec::new();
-  for commit in doc.commit_store().iter() {
+  doc.iter_commits_in_range(start_vv, end_vv, |commit| {
     let deps = match &commit.deps {
       Heads::Empty => Vec::new(),
       Heads::Linear(id) => vec![JsonOpId {
@@ -89,10 +95,10 @@ pub fn build_schema(doc: &DocInner) -> CoralResult<JsonSchema> {
       deps,
       ops,
     });
-  }
+  });
 
   Ok(JsonSchema {
-    schema_version: 1,
+    schema_version: SCHEMA_VERSION,
     commits,
   })
 }

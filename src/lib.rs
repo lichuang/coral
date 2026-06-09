@@ -1,5 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
+use crate::version::VersionVector;
+
 pub mod common;
 pub mod core;
 pub mod encoding;
@@ -50,9 +52,13 @@ impl Document {
   ///
   /// Commits any pending operations first so the output reflects the
   /// latest state.
-  pub fn export_json(&mut self) -> CoralResult<String> {
+  pub fn export_json(
+    &mut self,
+    start_vv: &VersionVector,
+    end_vv: &VersionVector,
+  ) -> CoralResult<String> {
     self.inner.commit();
-    encoding::export_json(&self.inner)
+    encoding::export_json(&self.inner, start_vv, end_vv)
   }
 }
 
