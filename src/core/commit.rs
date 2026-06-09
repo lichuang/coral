@@ -1,6 +1,6 @@
 use crate::operation::Op;
-use crate::rle::RleVec;
-use crate::types::{Lamport, OpId, Timestamp};
+use crate::rle::{HasLength, RleVec};
+use crate::types::{Counter, Lamport, OpId, Timestamp};
 use crate::version::Heads;
 
 /// A group of operations produced by a single peer at one causal moment.
@@ -56,5 +56,32 @@ impl Commit {
   /// in-place via the [`RleVec`](crate::rle::RleVec) mechanism.
   pub fn push_op(&mut self, op: Op) {
     self.ops.push(op);
+  }
+
+  /// Returns the exclusive end counter of this commit's operation range.
+  ///
+  /// The commit covers counters `[id.counter, end_counter())`.
+  pub fn end_counter(&self) -> Counter {
+    self.id.counter
+      + self
+        .ops
+        .iter()
+        .map(|op| op.content_len() as Counter)
+        .sum::<Counter>()
+  }
+
+  /// Debug-only check that all ops form a contiguous counter range
+  /// starting at `id.counter`.
+  #[cfg(debug_assertions)]
+  pub fn assert_contiguous(&self) {
+    let mut expected = self.id.counter;
+    for op in self.ops.iter() {
+      debug_assert_eq!(
+        op.counter, expected,
+        "ops not contiguous: expected counter {} but found {}",
+        expected, op.counter
+      );
+      expected += op.content_len() as Counter;
+    }
   }
 }

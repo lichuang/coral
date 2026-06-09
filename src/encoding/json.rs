@@ -43,7 +43,7 @@ pub fn build_schema(doc: &DocInner) -> CoralResult<JsonSchema> {
   let registry = doc.registry();
 
   let mut commits = Vec::new();
-  for commit in doc.history().iter() {
+  for commit in doc.commit_store().iter() {
     let deps = match &commit.deps {
       Heads::Empty => Vec::new(),
       Heads::Linear(id) => vec![JsonOpId {

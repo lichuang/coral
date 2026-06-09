@@ -125,7 +125,7 @@ mod increment_tests {
     counter.increment(1.0).unwrap();
     doc.commit();
 
-    assert_eq!(doc.history().len(), 1);
+    assert_eq!(doc.commit_store().len(), 1);
   }
 
   #[test]
@@ -212,7 +212,7 @@ mod increment_tests {
     counter.increment(3.0).unwrap();
     doc.commit();
 
-    let history = doc.history();
+    let history = doc.commit_store();
     let commits = history.iter().collect::<Vec<_>>();
     assert_eq!(commits.len(), 1);
     assert_eq!(commits[0].id, OpId::new(peer_id, 0));
@@ -228,7 +228,7 @@ mod increment_tests {
     counter.increment(1.0).unwrap();
     doc.commit();
 
-    let history = doc.history();
+    let history = doc.commit_store();
     let commits: Vec<_> = history.iter().collect();
     assert_eq!(commits.len(), 1);
     assert_eq!(commits[0].lamport, 0);

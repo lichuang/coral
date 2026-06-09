@@ -1,6 +1,8 @@
 use crate::types::{Counter, OpId, PeerID};
 use rustc_hash::FxHashMap;
 
+use super::{IdSpan, VersionVectorDiff};
+
 /// A version vector tracks the latest observed counter for each peer.
 ///
 /// It is used to determine causal ordering and to detect whether a given
@@ -62,6 +64,26 @@ impl VersionVector {
   pub fn iter(&self) -> impl Iterator<Item = (&PeerID, &Counter)> {
     self.0.iter()
   }
+
+  /// Returns the spans of operations present in `self` but not in `other`.
+  ///
+  /// For each peer where `self` has a higher counter than `other`, an
+  /// [`IdSpan`] is emitted covering `[other_counter, self_counter)`.
+  pub fn diff_from(&self, other: &Self) -> VersionVectorDiff {
+    let spans = self
+      .0
+      .iter()
+      .filter_map(|(&peer, &end)| {
+        let start = other.get_or_zero(peer);
+        if end > start {
+          Some(IdSpan::new(peer, start, end))
+        } else {
+          None
+        }
+      })
+      .collect();
+    VersionVectorDiff::new(spans)
+  }
 }
 
 #[cfg(test)]
@@ -106,5 +128,124 @@ mod tests {
     assert!(!vv.includes(&OpId::new(1, 5)));
     assert!(!vv.includes(&OpId::new(1, 6)));
     assert!(!vv.includes(&OpId::new(2, 0)));
+  }
+
+  #[test]
+  fn test_diff_from_both_empty() {
+    let a = VersionVector::new();
+    let b = VersionVector::new();
+    let diff = a.diff_from(&b);
+    assert!(diff.is_empty());
+  }
+
+  #[test]
+  fn test_diff_from_self_empty_other_nonempty() {
+    let a = VersionVector::new();
+    let mut b = VersionVector::new();
+    b.insert(1, 10);
+    let diff = a.diff_from(&b);
+    assert!(diff.is_empty());
+  }
+
+  #[test]
+  fn test_diff_from_other_empty() {
+    let mut a = VersionVector::new();
+    a.insert(1, 10);
+    a.insert(2, 5);
+    let b = VersionVector::new();
+    let diff = a.diff_from(&b);
+    assert_eq!(diff.spans.len(), 2);
+    assert!(diff.spans.contains(&IdSpan::new(1, 0, 10)));
+    assert!(diff.spans.contains(&IdSpan::new(2, 0, 5)));
+  }
+
+  #[test]
+  fn test_diff_from_self_higher_counter() {
+    let mut a = VersionVector::new();
+    a.insert(1, 15);
+    let mut b = VersionVector::new();
+    b.insert(1, 10);
+    let diff = a.diff_from(&b);
+    assert_eq!(diff.spans.len(), 1);
+    assert_eq!(diff.spans[0], IdSpan::new(1, 10, 15));
+  }
+
+  #[test]
+  fn test_diff_from_same_counter() {
+    let mut a = VersionVector::new();
+    a.insert(1, 10);
+    let mut b = VersionVector::new();
+    b.insert(1, 10);
+    let diff = a.diff_from(&b);
+    assert!(diff.is_empty());
+  }
+
+  #[test]
+  fn test_diff_from_self_lower_counter() {
+    let mut a = VersionVector::new();
+    a.insert(1, 5);
+    let mut b = VersionVector::new();
+    b.insert(1, 10);
+    let diff = a.diff_from(&b);
+    assert!(diff.is_empty());
+  }
+
+  #[test]
+  fn test_diff_from_peer_only_in_self() {
+    let mut a = VersionVector::new();
+    a.insert(1, 10);
+    a.insert(2, 8);
+    let mut b = VersionVector::new();
+    b.insert(1, 10);
+    let diff = a.diff_from(&b);
+    assert_eq!(diff.spans.len(), 1);
+    assert_eq!(diff.spans[0], IdSpan::new(2, 0, 8));
+  }
+
+  #[test]
+  fn test_diff_from_peer_only_in_other() {
+    let mut a = VersionVector::new();
+    a.insert(1, 10);
+    let mut b = VersionVector::new();
+    b.insert(1, 10);
+    b.insert(2, 8);
+    let diff = a.diff_from(&b);
+    assert!(diff.is_empty());
+  }
+
+  #[test]
+  fn test_diff_from_mixed_peers() {
+    let mut a = VersionVector::new();
+    a.insert(1, 15);
+    a.insert(2, 10);
+    a.insert(3, 5);
+    let mut b = VersionVector::new();
+    b.insert(1, 10);
+    b.insert(2, 10);
+    b.insert(4, 20);
+    let diff = a.diff_from(&b);
+    assert_eq!(diff.spans.len(), 2);
+    assert!(diff.spans.contains(&IdSpan::new(1, 10, 15)));
+    assert!(diff.spans.contains(&IdSpan::new(3, 0, 5)));
+  }
+
+  #[test]
+  fn test_diff_from_symmetry() {
+    let mut a = VersionVector::new();
+    a.insert(1, 10);
+    a.insert(2, 5);
+    let mut b = VersionVector::new();
+    b.insert(1, 8);
+    b.insert(3, 7);
+
+    let ab = a.diff_from(&b);
+    let ba = b.diff_from(&a);
+
+    assert_eq!(ab.spans.len(), 2);
+    assert!(ab.spans.contains(&IdSpan::new(1, 8, 10)));
+    assert!(ab.spans.contains(&IdSpan::new(2, 0, 5)));
+
+    assert_eq!(ba.spans.len(), 1);
+    assert!(ba.spans.contains(&IdSpan::new(3, 0, 7)));
   }
 }

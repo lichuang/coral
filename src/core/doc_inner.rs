@@ -6,7 +6,7 @@ use rustc_hash::FxHashMap;
 
 use rand::Rng;
 
-use super::{CausalGraph, CommitBuilder, History};
+use super::{CausalGraph, CommitBuilder, CommitStore};
 
 /// The internal state of a collaborative document.
 ///
@@ -19,7 +19,7 @@ pub struct DocInner {
   registry: ObjectRegistry,
   causal_graph: CausalGraph,
   states: FxHashMap<ObjectIndex, ObjectState>,
-  history: History,
+  commit_store: CommitStore,
   commit_builder: Option<CommitBuilder>,
 }
 
@@ -50,7 +50,7 @@ impl DocInner {
       registry: ObjectRegistry::new(),
       causal_graph: CausalGraph::new(),
       states: FxHashMap::default(),
-      history: History::new(),
+      commit_store: CommitStore::new(),
       commit_builder: None,
     }
   }
@@ -67,8 +67,8 @@ impl DocInner {
     &mut self.causal_graph
   }
 
-  pub fn history(&self) -> &History {
-    &self.history
+  pub fn commit_store(&self) -> &CommitStore {
+    &self.commit_store
   }
 
   pub fn state(&self, index: ObjectIndex) -> Option<&ObjectState> {
@@ -110,8 +110,10 @@ impl DocInner {
     if let Some(builder) = self.commit_builder.take()
       && let Some(commit) = builder.into_commit()
     {
+      #[cfg(debug_assertions)]
+      commit.assert_contiguous();
       self.causal_graph.insert(&commit);
-      self.history.push(commit);
+      self.commit_store.insert(commit);
     }
   }
 
