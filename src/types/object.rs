@@ -1,5 +1,6 @@
 use crate::common::{CoralError, CoralResult};
 use crate::types::OpId;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
 /// Unique identifier for a CRDT object (container).
@@ -12,6 +13,55 @@ use std::fmt;
 pub enum ObjectId {
   Root { name: String, typ: ObjectType },
   Node { op: OpId, typ: ObjectType },
+}
+
+impl Serialize for ObjectId {
+  fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    let mut map = serializer.serialize_map(Some(2))?;
+    match self {
+      ObjectId::Root { name, typ } => {
+        map.serialize_entry("name", name)?;
+        map.serialize_entry("type", typ)?;
+      }
+      ObjectId::Node { op, typ } => {
+        map.serialize_entry("op", &op.to_string())?;
+        map.serialize_entry("type", typ)?;
+      }
+    }
+    map.end()
+  }
+}
+
+impl<'de> Deserialize<'de> for ObjectId {
+  fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+    let v = serde_json::Value::deserialize(deserializer)?;
+    let typ: ObjectType = serde_json::from_value(
+      v.get("type")
+        .ok_or_else(|| serde::de::Error::missing_field("type"))?
+        .clone(),
+    )
+    .map_err(serde::de::Error::custom)?;
+
+    if let Some(name) = v.get("name") {
+      let name = name
+        .as_str()
+        .ok_or_else(|| serde::de::Error::custom("name must be a string"))?;
+      Ok(ObjectId::Root {
+        name: name.to_string(),
+        typ,
+      })
+    } else if let Some(op) = v.get("op") {
+      let op_str = op
+        .as_str()
+        .ok_or_else(|| serde::de::Error::custom("op must be a string"))?;
+      let op_id = OpId::try_from(op_str)
+        .map_err(|e| serde::de::Error::custom(format!("invalid op id: {e}")))?;
+      Ok(ObjectId::Node { op: op_id, typ })
+    } else {
+      Err(serde::de::Error::custom("missing name or op field"))
+    }
+  }
 }
 
 impl ObjectId {
@@ -34,10 +84,11 @@ impl ObjectId {
 ///
 /// Objects are the building blocks of collaborative documents.
 /// Each object type has its own conflict resolution semantics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[derive(
+  Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ObjectType {
-  /// A counter that supports increments and decrements (PN-Counter).
   Counter,
 }
 
@@ -201,5 +252,80 @@ mod tests {
     let a = ObjectIndex::new(7, ObjectType::Counter);
     let b = ObjectIndex::new(7, ObjectType::Counter);
     assert_eq!(a, b);
+  }
+
+  #[test]
+  fn test_object_id_root_serialize() {
+    let id = ObjectId::Root {
+      name: "score".into(),
+      typ: ObjectType::Counter,
+    };
+    let json = serde_json::to_string(&id).unwrap();
+    assert!(json.contains("\"name\":\"score\""));
+    assert!(json.contains("\"type\":\"counter\""));
+  }
+
+  #[test]
+  fn test_object_id_root_roundtrip() {
+    let id = ObjectId::Root {
+      name: "hits".into(),
+      typ: ObjectType::Counter,
+    };
+    let json = serde_json::to_string(&id).unwrap();
+    let recovered: ObjectId = serde_json::from_str(&json).unwrap();
+    assert_eq!(id, recovered);
+  }
+
+  #[test]
+  fn test_object_id_node_roundtrip() {
+    let id = ObjectId::Node {
+      op: OpId::new(42, 100),
+      typ: ObjectType::Counter,
+    };
+    let json = serde_json::to_string(&id).unwrap();
+    assert!(json.contains("\"op\":\"100@42\""));
+    assert!(json.contains("\"type\":\"counter\""));
+    let recovered: ObjectId = serde_json::from_str(&json).unwrap();
+    assert_eq!(id, recovered);
+  }
+
+  #[test]
+  fn test_object_id_deserialize_root() {
+    let json = r#"{"name":"score","type":"counter"}"#;
+    let id: ObjectId = serde_json::from_str(json).unwrap();
+    assert_eq!(
+      id,
+      ObjectId::Root {
+        name: "score".into(),
+        typ: ObjectType::Counter,
+      }
+    );
+  }
+
+  #[test]
+  fn test_object_id_deserialize_node() {
+    let json = r#"{"op":"100@42","type":"counter"}"#;
+    let id: ObjectId = serde_json::from_str(json).unwrap();
+    assert_eq!(
+      id,
+      ObjectId::Node {
+        op: OpId::new(42, 100),
+        typ: ObjectType::Counter,
+      }
+    );
+  }
+
+  #[test]
+  fn test_object_id_deserialize_missing_type() {
+    let json = r#"{"name":"score"}"#;
+    let result: Result<ObjectId, _> = serde_json::from_str(json);
+    assert!(result.is_err());
+  }
+
+  #[test]
+  fn test_object_id_deserialize_missing_name_and_op() {
+    let json = r#"{"type":"counter"}"#;
+    let result: Result<ObjectId, _> = serde_json::from_str(json);
+    assert!(result.is_err());
   }
 }

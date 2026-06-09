@@ -60,6 +60,10 @@ impl Document {
     self.inner.commit();
     encoding::export_json(&self.inner, start_vv, end_vv)
   }
+
+  pub fn import_json(&mut self, json: &str) -> CoralResult<()> {
+    self.inner.import_json(json)
+  }
 }
 
 impl Default for Document {

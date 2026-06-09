@@ -1,5 +1,6 @@
 use crate::common::{CoralError, CoralResult};
 use crate::core::Commit;
+use crate::encoding::JsonSchema;
 use crate::object::{CounterRef, ObjectRegistry, ObjectState};
 use crate::operation::{Cmd, Op};
 use crate::types::{Counter, ObjectId, ObjectIndex, ObjectType, PeerID};
@@ -145,6 +146,56 @@ impl DocInner {
     };
     let index = self.registry.alloc_root(name.to_string(), id);
     Ok(CounterRef::new(self, index))
+  }
+
+  fn ensure_container(&mut self, name: &str, typ: ObjectType) -> CoralResult<ObjectIndex> {
+    if let Some(index) = self.registry.get_root(name) {
+      let existing_typ = index.typ()?;
+      if existing_typ != typ {
+        return Err(CoralError::TypeMismatch {
+          expected: existing_typ.to_string(),
+          actual: typ.to_string(),
+        });
+      }
+      return Ok(index);
+    }
+    let id = ObjectId::Root {
+      name: name.to_string(),
+      typ,
+    };
+    Ok(self.registry.alloc_root(name.to_string(), id))
+  }
+
+  fn import_commit(&mut self, commit: Commit) -> CoralResult<()> {
+    if commit.id.peer == self.peer_id {
+      return Err(CoralError::InvalidImport("local commit".into()));
+    }
+    if commit.ops.is_empty() {
+      return Err(CoralError::InvalidImport("empty commit".into()));
+    }
+    #[cfg(debug_assertions)]
+    commit.assert_contiguous();
+
+    for op in commit.ops.iter() {
+      self.state_mut(op.container).apply(op)?;
+    }
+
+    self.causal_graph.insert(&commit);
+    self.commit_store.insert(commit);
+    Ok(())
+  }
+
+  pub fn import_json(&mut self, json: &str) -> CoralResult<()> {
+    let schema: JsonSchema = serde_json::from_str(json)
+      .map_err(|e| CoralError::InvalidImport(format!("json parse: {e}")))?;
+
+    for jc in schema.commits {
+      let commit =
+        Commit::from_json_commit(jc, &mut |name, id| self.ensure_container(name, id.typ()))?;
+      self.import_commit(commit)?;
+    }
+
+    Ok(())
   }
 }
 

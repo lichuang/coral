@@ -7,6 +7,7 @@
 //! - [`Heads::Linear`] — linear history, exactly one tip (most common, zero allocation)
 //! - [`Heads::Concurrent`] — concurrent edits with multiple tips (Arc-shared HashMap)
 
+use crate::encoding::json::JsonOpId;
 use crate::types::{Counter, OpId, PeerID};
 use rustc_hash::FxHashMap;
 use std::collections::hash_map;
@@ -148,6 +149,37 @@ impl Heads {
         }
       }
     }
+  }
+
+  pub fn to_json_ids(&self) -> Vec<JsonOpId> {
+    match self {
+      Self::Empty => Vec::new(),
+      Self::Linear(id) => vec![JsonOpId {
+        peer: id.peer,
+        counter: id.counter,
+      }],
+      Self::Concurrent(map) => map
+        .iter()
+        .map(|(&p, &c)| JsonOpId {
+          peer: p,
+          counter: c,
+        })
+        .collect(),
+    }
+  }
+
+  pub fn from_json_ids(ids: Vec<JsonOpId>) -> Self {
+    if ids.is_empty() {
+      return Self::Empty;
+    }
+    if ids.len() == 1 {
+      return Self::from_id(OpId::new(ids[0].peer, ids[0].counter));
+    }
+    let mut h = Self::new();
+    for id in &ids {
+      h.push(OpId::new(id.peer, id.counter));
+    }
+    h
   }
 }
 

@@ -22,6 +22,13 @@ pub enum CoralError {
   /// JSON serialization or deserialization error.
   #[error("JSON error: {0}")]
   Json(String),
+
+  /// Import validation failed.
+  #[error("invalid import: {0}")]
+  InvalidImport(String),
+
+  #[error("invalid export: {0}")]
+  InvalidExport(String),
 }
 
 impl From<serde_json::Error> for CoralError {

@@ -2,9 +2,9 @@ use crate::common::CoralResult;
 use crate::core::DocInner;
 use crate::version::VersionVector;
 
-mod json;
+pub mod json;
 
-pub use json::JsonSchema;
+pub use json::{JsonCmd, JsonSchema};
 
 pub fn export_json(
   doc: &DocInner,

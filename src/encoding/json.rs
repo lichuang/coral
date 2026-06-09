@@ -1,42 +1,41 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::common::CoralResult;
 use crate::core::DocInner;
-use crate::operation::Cmd;
 use crate::types::{Counter, Lamport, ObjectId, PeerID, Timestamp};
-use crate::version::{Heads, VersionVector};
+use crate::version::VersionVector;
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct JsonSchema {
-  schema_version: u8,
-  commits: Vec<JsonCommit>,
+  pub schema_version: u8,
+  pub commits: Vec<JsonCommit>,
 }
 
-#[derive(Serialize)]
-struct JsonCommit {
-  id: JsonOpId,
-  lamport: Lamport,
-  timestamp: Timestamp,
-  deps: Vec<JsonOpId>,
-  ops: Vec<JsonOp>,
+#[derive(Serialize, Deserialize)]
+pub struct JsonCommit {
+  pub id: JsonOpId,
+  pub lamport: Lamport,
+  pub timestamp: Timestamp,
+  pub deps: Vec<JsonOpId>,
+  pub ops: Vec<JsonOp>,
 }
 
-#[derive(Serialize)]
-struct JsonOpId {
-  peer: PeerID,
-  counter: Counter,
+#[derive(Serialize, Deserialize)]
+pub struct JsonOpId {
+  pub peer: PeerID,
+  pub counter: Counter,
 }
 
-#[derive(Serialize)]
-struct JsonOp {
-  container: String,
+#[derive(Serialize, Deserialize)]
+pub struct JsonOp {
+  pub container: ObjectId,
   #[serde(flatten)]
-  cmd: JsonCmd,
+  pub cmd: JsonCmd,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-enum JsonCmd {
+pub enum JsonCmd {
   IncCounter { delta: f64 },
 }
 
@@ -51,51 +50,9 @@ pub fn build_schema(
 
   let mut commits = Vec::new();
   doc.iter_commits_in_range(start_vv, end_vv, |commit| {
-    let deps = match &commit.deps {
-      Heads::Empty => Vec::new(),
-      Heads::Linear(id) => vec![JsonOpId {
-        peer: id.peer,
-        counter: id.counter,
-      }],
-      Heads::Concurrent(map) => map
-        .iter()
-        .map(|(&p, &c)| JsonOpId {
-          peer: p,
-          counter: c,
-        })
-        .collect(),
-    };
-
-    let mut ops = Vec::new();
-    for op in commit.ops.iter() {
-      let container_name = registry
-        .get_by_index(op.container)
-        .and_then(|id| match id {
-          ObjectId::Root { name, .. } => Some(name.clone()),
-          ObjectId::Node { .. } => None,
-        })
-        .unwrap_or_else(|| format!("<node:{}>", op.container.index()));
-
-      let cmd = match &op.cmd {
-        Cmd::IncCounter { delta } => JsonCmd::IncCounter { delta: *delta },
-      };
-
-      ops.push(JsonOp {
-        container: container_name,
-        cmd,
-      });
+    if let Ok(jc) = commit.to_json_commit(registry) {
+      commits.push(jc);
     }
-
-    commits.push(JsonCommit {
-      id: JsonOpId {
-        peer: commit.id.peer,
-        counter: commit.id.counter,
-      },
-      lamport: commit.lamport,
-      timestamp: commit.timestamp,
-      deps,
-      ops,
-    });
   });
 
   Ok(JsonSchema {
@@ -108,6 +65,7 @@ pub fn build_schema(
 mod tests {
   use super::*;
   use crate::Document;
+  use crate::common::CoralError;
 
   #[test]
   fn test_export_json_full_range() {
@@ -202,8 +160,244 @@ mod tests {
 
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     let op = &parsed["commits"][0]["ops"][0];
-    assert_eq!(op["container"], "score");
+    assert_eq!(op["container"]["name"], "score");
+    assert_eq!(op["container"]["type"], "counter");
     assert_eq!(op["type"], "inc_counter");
     assert!(op["delta"].as_f64().unwrap() - 5.0 < f64::EPSILON);
+  }
+
+  #[test]
+  fn test_import_json_roundtrip() {
+    let mut doc_a = Document::new();
+
+    {
+      let mut counter = doc_a.get_counter("hits").unwrap();
+      counter.increment(3.0).unwrap();
+      counter.increment(2.0).unwrap();
+    }
+    doc_a.commit();
+
+    let start_vv = VersionVector::new();
+    let end_vv = doc_a.causal_graph().vv().clone();
+    let json = crate::encoding::export_json(&doc_a, &start_vv, &end_vv).unwrap();
+
+    let mut doc_b = Document::new();
+    doc_b.import_json(&json).unwrap();
+
+    assert_eq!(doc_b.commit_store().len(), 1);
+    let counter_b = doc_b.get_counter("hits").unwrap();
+    assert_eq!(counter_b.value(), 5.0);
+  }
+
+  #[test]
+  fn test_import_json_multiple_commits() {
+    let mut doc_a = Document::new();
+
+    {
+      let mut counter = doc_a.get_counter("c").unwrap();
+      counter.increment(1.0).unwrap();
+    }
+    doc_a.commit();
+
+    {
+      let mut counter = doc_a.get_counter("c").unwrap();
+      counter.increment(2.0).unwrap();
+    }
+    doc_a.commit();
+
+    let start_vv = VersionVector::new();
+    let end_vv = doc_a.causal_graph().vv().clone();
+    let json = crate::encoding::export_json(&doc_a, &start_vv, &end_vv).unwrap();
+
+    let mut doc_b = Document::new();
+    doc_b.import_json(&json).unwrap();
+
+    assert_eq!(doc_b.commit_store().len(), 2);
+    let counter_b = doc_b.get_counter("c").unwrap();
+    assert_eq!(counter_b.value(), 3.0);
+  }
+
+  #[test]
+  fn test_import_json_partial_export() {
+    let mut doc_a = Document::new();
+    let peer_a = doc_a.peer_id();
+
+    {
+      let mut counter = doc_a.get_counter("c").unwrap();
+      counter.increment(1.0).unwrap();
+    }
+    doc_a.commit();
+
+    {
+      let mut counter = doc_a.get_counter("c").unwrap();
+      counter.increment(2.0).unwrap();
+    }
+    doc_a.commit();
+
+    let mut start_vv = VersionVector::new();
+    start_vv.insert(peer_a, 1);
+    let end_vv = doc_a.causal_graph().vv().clone();
+    let json = crate::encoding::export_json(&doc_a, &start_vv, &end_vv).unwrap();
+
+    let mut doc_b = Document::new();
+    doc_b.import_json(&json).unwrap();
+
+    assert_eq!(doc_b.commit_store().len(), 1);
+    let counter_b = doc_b.get_counter("c").unwrap();
+    assert_eq!(counter_b.value(), 2.0);
+  }
+
+  #[test]
+  fn test_import_json_empty_commits() {
+    let json = r#"{"schema_version":1,"commits":[]}"#;
+    let mut doc = Document::new();
+    doc.import_json(json).unwrap();
+    assert_eq!(doc.commit_store().len(), 0);
+  }
+
+  #[test]
+  fn test_import_json_container_includes_type() {
+    let mut doc = Document::new();
+
+    {
+      let mut counter = doc.get_counter("mycounter").unwrap();
+      counter.increment(1.0).unwrap();
+    }
+    doc.commit();
+
+    let start_vv = VersionVector::new();
+    let end_vv = doc.causal_graph().vv().clone();
+    let json = crate::encoding::export_json(&doc, &start_vv, &end_vv).unwrap();
+
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let container = &parsed["commits"][0]["ops"][0]["container"];
+    assert_eq!(container["name"], "mycounter");
+    assert_eq!(container["type"], "counter");
+  }
+
+  #[test]
+  fn test_import_json_from_raw_json() {
+    let json = r#"{
+      "schema_version": 1,
+      "commits": [{
+        "id": {"peer": 999, "counter": 0},
+        "lamport": 0,
+        "timestamp": 0,
+        "deps": [],
+        "ops": [{
+          "container": {"name": "votes", "type": "counter"},
+          "type": "inc_counter",
+          "delta": 7.0
+        }]
+      }]
+    }"#;
+
+    let mut doc = Document::new();
+    doc.import_json(json).unwrap();
+    assert_eq!(doc.commit_store().len(), 1);
+    let counter = doc.get_counter("votes").unwrap();
+    assert_eq!(counter.value(), 7.0);
+  }
+
+  #[test]
+  fn test_import_json_same_container_two_commits() {
+    let json = r#"{
+      "schema_version": 1,
+      "commits": [
+        {
+          "id": {"peer": 100, "counter": 0},
+          "lamport": 0,
+          "timestamp": 0,
+          "deps": [],
+          "ops": [{"container": {"name": "score", "type": "counter"}, "type": "inc_counter", "delta": 3.0}]
+        },
+        {
+          "id": {"peer": 200, "counter": 0},
+          "lamport": 1,
+          "timestamp": 0,
+          "deps": [{"peer": 100, "counter": 0}],
+          "ops": [{"container": {"name": "score", "type": "counter"}, "type": "inc_counter", "delta": 4.0}]
+        }
+      ]
+    }"#;
+
+    let mut doc = Document::new();
+    doc.import_json(json).unwrap();
+    assert_eq!(doc.commit_store().len(), 2);
+    let counter = doc.get_counter("score").unwrap();
+    assert_eq!(counter.value(), 7.0);
+  }
+
+  #[test]
+  fn test_import_json_type_mismatch() {
+    let json = r#"{
+      "schema_version": 1,
+      "commits": [{
+        "id": {"peer": 999, "counter": 0},
+        "lamport": 0,
+        "timestamp": 0,
+        "deps": [],
+        "ops": [{"container": {"name": "score", "type": "unknown"}, "type": "inc_counter", "delta": 1.0}]
+      }]
+    }"#;
+
+    let mut doc = Document::new();
+    assert!(doc.import_json(json).is_err());
+  }
+
+  #[test]
+  fn test_import_json_reimport_same_container_ok() {
+    let json = r#"{
+      "schema_version": 1,
+      "commits": [{
+        "id": {"peer": 100, "counter": 0},
+        "lamport": 0,
+        "timestamp": 0,
+        "deps": [],
+        "ops": [{"container": {"name": "hits", "type": "counter"}, "type": "inc_counter", "delta": 3.0}]
+      }]
+    }"#;
+
+    let mut doc = Document::new();
+    doc.import_json(json).unwrap();
+    assert_eq!(doc.get_counter("hits").unwrap().value(), 3.0);
+
+    let json2 = r#"{
+      "schema_version": 1,
+      "commits": [{
+        "id": {"peer": 200, "counter": 0},
+        "lamport": 1,
+        "timestamp": 0,
+        "deps": [{"peer": 100, "counter": 0}],
+        "ops": [{"container": {"name": "hits", "type": "counter"}, "type": "inc_counter", "delta": 4.0}]
+      }]
+    }"#;
+    doc.import_json(json2).unwrap();
+    assert_eq!(doc.commit_store().len(), 2);
+    assert_eq!(doc.get_counter("hits").unwrap().value(), 7.0);
+  }
+
+  #[test]
+  fn test_import_json_node_container_rejected() {
+    let json = r#"{
+      "schema_version": 1,
+      "commits": [{
+        "id": {"peer": 100, "counter": 0},
+        "lamport": 0,
+        "timestamp": 0,
+        "deps": [],
+        "ops": [{"container": {"op": "100@42", "type": "counter"}, "type": "inc_counter", "delta": 1.0}]
+      }]
+    }"#;
+
+    let mut doc = Document::new();
+    let result = doc.import_json(json);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+      CoralError::InvalidImport(msg) => {
+        assert!(msg.contains("node container"), "unexpected msg: {}", msg);
+      }
+      other => panic!("expected InvalidImport, got {:?}", other),
+    }
   }
 }
