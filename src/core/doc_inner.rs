@@ -126,8 +126,7 @@ impl DocInner {
     {
       #[cfg(debug_assertions)]
       commit.assert_contiguous();
-      self.commit_store.insert(commit.clone());
-      let _ = self.ingest_commit(commit);
+      let _ = self.save_commit(commit);
     }
   }
 
@@ -151,16 +150,47 @@ impl DocInner {
     known >= commit.end_counter()
   }
 
-  fn ingest_commit_inner(&mut self, commit: Commit) -> CoralResult<()> {
+  #[cfg(debug_assertions)]
+  fn debug_assert_commit_invariants(&self, commit: &Commit) {
+    let expected = self.causal_graph.vv().get_or_zero(commit.id.peer);
+    assert_eq!(
+      commit.id.counter, expected,
+      "commit counter must be contiguous for peer {} (expected {}, got {})",
+      commit.id.peer, expected, commit.id.counter,
+    );
+
+    if let Some(last) = self.commit_store.last_for_peer(commit.id.peer) {
+      assert_eq!(
+        last.end_counter(),
+        commit.id.counter,
+        "commit_store gap for peer {}: last commit ends at {}, new one starts at {}",
+        commit.id.peer,
+        last.end_counter(),
+        commit.id.counter,
+      );
+    } else {
+      assert_eq!(
+        commit.id.counter, 0,
+        "first commit for peer {} must start at counter 0, got {}",
+        commit.id.peer, commit.id.counter,
+      );
+    }
+  }
+
+  fn save_commit_inner(&mut self, commit: Commit) -> CoralResult<()> {
+    #[cfg(debug_assertions)]
+    self.debug_assert_commit_invariants(&commit);
+
     for op in commit.ops.iter() {
       self.state_mut(op.container).apply(op)?;
     }
     self.causal_graph.insert(&commit);
+    self.commit_store.insert(commit);
     Ok(())
   }
 
-  fn ingest_commit(&mut self, commit: Commit) -> CoralResult<()> {
-    self.ingest_commit_inner(commit)?;
+  fn save_commit(&mut self, commit: Commit) -> CoralResult<()> {
+    self.save_commit_inner(commit)?;
     self.try_apply_pending()?;
     Ok(())
   }
@@ -177,7 +207,7 @@ impl DocInner {
 
       for commit in pending {
         if Self::deps_satisfied(&self.causal_graph, &commit) {
-          self.ingest_commit_inner(commit)?;
+          self.save_commit_inner(commit)?;
           applied_any = true;
         } else {
           still_pending.push(commit);
@@ -246,7 +276,7 @@ impl DocInner {
     }
 
     if Self::deps_satisfied(&self.causal_graph, &commit) {
-      self.ingest_commit(commit)?;
+      self.save_commit(commit)?;
     } else {
       self.pending_commits.push(commit);
     }

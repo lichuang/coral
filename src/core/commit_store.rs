@@ -50,6 +50,17 @@ impl CommitStore {
     self.inner.values()
   }
 
+  /// Returns the last stored commit for the given peer, if any.
+  pub fn last_for_peer(&self, peer: crate::types::PeerID) -> Option<&Commit> {
+    let max_key = OpId::new(peer, crate::types::Counter::MAX);
+    self
+      .inner
+      .range(..=max_key)
+      .next_back()
+      .filter(|(key, _)| key.peer == peer)
+      .map(|(_, commit)| commit)
+  }
+
   /// Finds all commits whose counter range overlaps with the given [`IdSpan`].
   ///
   /// A commit covers `[commit.id.counter, commit.end_counter())`. It overlaps
