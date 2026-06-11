@@ -126,7 +126,7 @@ impl DocInner {
     {
       #[cfg(debug_assertions)]
       commit.assert_contiguous();
-      let _ = self.save_commit(commit);
+      let _ = self.save_local_commit(commit);
     }
   }
 
@@ -181,25 +181,27 @@ impl DocInner {
     #[cfg(debug_assertions)]
     self.debug_assert_commit_invariants(&commit);
 
-    for op in commit.ops.iter() {
-      self.state_mut(op.container).apply(op)?;
-    }
     self.causal_graph.insert(&commit);
     self.commit_store.insert(commit);
     Ok(())
   }
 
-  fn save_commit(&mut self, commit: Commit) -> CoralResult<()> {
+  fn save_local_commit(&mut self, commit: Commit) -> CoralResult<()> {
     self.save_commit_inner(commit)?;
     self.try_apply_pending()?;
     Ok(())
   }
 
-  /// Scans the pending queue and applies any commits whose deps are now
-  /// satisfied.  Repeats until a full pass finds nothing new.
+  fn save_remote_commit(&mut self, commit: Commit) -> CoralResult<()> {
+    for op in commit.ops.iter() {
+      self.state_mut(op.container).apply(op)?;
+    }
+    self.save_commit_inner(commit)?;
+    self.try_apply_pending()?;
+    Ok(())
+  }
+
   fn try_apply_pending(&mut self) -> CoralResult<()> {
-    // Cap at 3 passes as a safety limit.  In normal operation a single batch
-    // rarely needs more than 2–3 rounds to resolve a chain of pending deps.
     for _ in 0..3 {
       let mut applied_any = false;
       let pending: Vec<Commit> = self.pending_commits.drain(..).collect();
@@ -207,6 +209,9 @@ impl DocInner {
 
       for commit in pending {
         if Self::deps_satisfied(&self.causal_graph, &commit) {
+          for op in commit.ops.iter() {
+            self.state_mut(op.container).apply(op)?;
+          }
           self.save_commit_inner(commit)?;
           applied_any = true;
         } else {
@@ -276,7 +281,7 @@ impl DocInner {
     }
 
     if Self::deps_satisfied(&self.causal_graph, &commit) {
-      self.save_commit(commit)?;
+      self.save_remote_commit(commit)?;
     } else {
       self.pending_commits.push(commit);
     }
