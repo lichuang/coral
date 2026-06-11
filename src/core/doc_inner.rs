@@ -24,6 +24,8 @@ pub struct DocInner {
   states: FxHashMap<ObjectIndex, ObjectState>,
   commit_store: CommitStore,
   commit_builder: Option<CommitBuilder>,
+  /// Commits whose dependencies have not yet arrived.
+  pending_commits: Vec<Commit>,
 }
 
 impl std::fmt::Debug for DocInner {
@@ -55,6 +57,7 @@ impl DocInner {
       states: FxHashMap::default(),
       commit_store: CommitStore::new(),
       commit_builder: None,
+      pending_commits: Vec::new(),
     }
   }
 
@@ -123,9 +126,70 @@ impl DocInner {
     {
       #[cfg(debug_assertions)]
       commit.assert_contiguous();
-      self.causal_graph.insert(&commit);
-      self.commit_store.insert(commit);
+      self.commit_store.insert(commit.clone());
+      let _ = self.ingest_commit(commit);
     }
+  }
+
+  /// Returns `true` if all deps of the commit are already known to the
+  /// causal graph.
+  ///
+  /// We check both `vv.includes` and `cg.get` to guard against gaps:
+  /// `vv` alone may claim inclusion when there is a missing counter range.
+  fn deps_satisfied(cg: &CausalGraph, commit: &Commit) -> bool {
+    commit
+      .deps
+      .iter()
+      .all(|dep| cg.includes(&dep) && cg.get(&dep).is_some())
+  }
+
+  /// Returns `true` if the entire counter range of `commit` is already
+  /// present in the causal graph (i.e. we have seen this peer's ops up to
+  /// at least the commit's exclusive end).
+  fn is_commit_known(&self, commit: &Commit) -> bool {
+    let known = self.causal_graph.vv().get_or_zero(commit.id.peer);
+    known >= commit.end_counter()
+  }
+
+  fn ingest_commit_inner(&mut self, commit: Commit) -> CoralResult<()> {
+    for op in commit.ops.iter() {
+      self.state_mut(op.container).apply(op)?;
+    }
+    self.causal_graph.insert(&commit);
+    Ok(())
+  }
+
+  fn ingest_commit(&mut self, commit: Commit) -> CoralResult<()> {
+    self.ingest_commit_inner(commit)?;
+    self.try_apply_pending()?;
+    Ok(())
+  }
+
+  /// Scans the pending queue and applies any commits whose deps are now
+  /// satisfied.  Repeats until a full pass finds nothing new.
+  fn try_apply_pending(&mut self) -> CoralResult<()> {
+    // Cap at 3 passes as a safety limit.  In normal operation a single batch
+    // rarely needs more than 2–3 rounds to resolve a chain of pending deps.
+    for _ in 0..3 {
+      let mut applied_any = false;
+      let pending: Vec<Commit> = self.pending_commits.drain(..).collect();
+      let mut still_pending = Vec::new();
+
+      for commit in pending {
+        if Self::deps_satisfied(&self.causal_graph, &commit) {
+          self.ingest_commit_inner(commit)?;
+          applied_any = true;
+        } else {
+          still_pending.push(commit);
+        }
+      }
+
+      self.pending_commits = still_pending;
+      if !applied_any {
+        break;
+      }
+    }
+    Ok(())
   }
 
   pub fn get_counter(&mut self, name: &str) -> CoralResult<CounterRef<'_>> {
@@ -176,12 +240,16 @@ impl DocInner {
     #[cfg(debug_assertions)]
     commit.assert_contiguous();
 
-    for op in commit.ops.iter() {
-      self.state_mut(op.container).apply(op)?;
+    // Duplicate guard: already imported?
+    if self.is_commit_known(&commit) {
+      return Ok(());
     }
 
-    self.causal_graph.insert(&commit);
-    self.commit_store.insert(commit);
+    if Self::deps_satisfied(&self.causal_graph, &commit) {
+      self.ingest_commit(commit)?;
+    } else {
+      self.pending_commits.push(commit);
+    }
     Ok(())
   }
 
@@ -189,12 +257,26 @@ impl DocInner {
     let schema: JsonSchema = serde_json::from_str(json)
       .map_err(|e| CoralError::InvalidImport(format!("json parse: {e}")))?;
 
+    let mut commits = Vec::with_capacity(schema.commits.len());
     for jc in schema.commits {
       let commit =
         Commit::from_json_commit(jc, &mut |name, id| self.ensure_container(name, id.typ()))?;
-      self.import_commit(commit)?;
+      commits.push(commit);
     }
 
+    self.import_commits(commits)?;
+    Ok(())
+  }
+
+  /// Imports a batch of commits.  Each commit is validated and either applied
+  /// immediately or queued as pending.  After the batch is processed we run a
+  /// final cascade to apply any commits whose deps were satisfied by later
+  /// entries in the same batch.
+  fn import_commits(&mut self, commits: Vec<Commit>) -> CoralResult<()> {
+    for commit in commits {
+      self.import_commit(commit)?;
+    }
+    self.try_apply_pending()?;
     Ok(())
   }
 }

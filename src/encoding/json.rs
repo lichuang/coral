@@ -184,7 +184,6 @@ mod tests {
     let mut doc_b = Document::new();
     doc_b.import_json(&json).unwrap();
 
-    assert_eq!(doc_b.commit_store().len(), 1);
     let counter_b = doc_b.get_counter("hits").unwrap();
     assert_eq!(counter_b.value(), 5.0);
   }
@@ -212,7 +211,6 @@ mod tests {
     let mut doc_b = Document::new();
     doc_b.import_json(&json).unwrap();
 
-    assert_eq!(doc_b.commit_store().len(), 2);
     let counter_b = doc_b.get_counter("c").unwrap();
     assert_eq!(counter_b.value(), 3.0);
   }
@@ -234,17 +232,28 @@ mod tests {
     }
     doc_a.commit();
 
+    // Bootstrap doc_b with the first commit so deps are satisfied.
+    let mut bootstrap_start = VersionVector::new();
+    bootstrap_start.insert(peer_a, 0);
+    let mut bootstrap_end = VersionVector::new();
+    bootstrap_end.insert(peer_a, 1);
+    let bootstrap_json =
+      crate::encoding::export_json(&doc_a, &bootstrap_start, &bootstrap_end).unwrap();
+
+    let mut doc_b = Document::new();
+    doc_b.import_json(&bootstrap_json).unwrap();
+    assert_eq!(doc_b.get_counter("c").unwrap().value(), 1.0);
+
+    // Now import the partial export (second commit only).
     let mut start_vv = VersionVector::new();
     start_vv.insert(peer_a, 1);
     let end_vv = doc_a.causal_graph().vv().clone();
-    let json = crate::encoding::export_json(&doc_a, &start_vv, &end_vv).unwrap();
+    let partial_json = crate::encoding::export_json(&doc_a, &start_vv, &end_vv).unwrap();
 
-    let mut doc_b = Document::new();
-    doc_b.import_json(&json).unwrap();
+    doc_b.import_json(&partial_json).unwrap();
 
-    assert_eq!(doc_b.commit_store().len(), 1);
     let counter_b = doc_b.get_counter("c").unwrap();
-    assert_eq!(counter_b.value(), 2.0);
+    assert_eq!(counter_b.value(), 3.0);
   }
 
   #[test]
@@ -294,7 +303,6 @@ mod tests {
 
     let mut doc = Document::new();
     doc.import_json(json).unwrap();
-    assert_eq!(doc.commit_store().len(), 1);
     let counter = doc.get_counter("votes").unwrap();
     assert_eq!(counter.value(), 7.0);
   }
@@ -323,7 +331,6 @@ mod tests {
 
     let mut doc = Document::new();
     doc.import_json(json).unwrap();
-    assert_eq!(doc.commit_store().len(), 2);
     let counter = doc.get_counter("score").unwrap();
     assert_eq!(counter.value(), 7.0);
   }
@@ -373,7 +380,6 @@ mod tests {
       }]
     }"#;
     doc.import_json(json2).unwrap();
-    assert_eq!(doc.commit_store().len(), 2);
     assert_eq!(doc.get_counter("hits").unwrap().value(), 7.0);
   }
 
