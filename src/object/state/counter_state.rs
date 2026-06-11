@@ -11,12 +11,25 @@ impl CounterState {
     Self::default()
   }
 
+  #[allow(unreachable_patterns)]
   pub fn apply(&mut self, op: &Op) -> CoralResult<()> {
     match &op.cmd {
       Cmd::IncCounter { delta } => {
         self.value += delta;
         Ok(())
       }
+      _ => unreachable!("unsupported cmd for Counter"),
+    }
+  }
+
+  #[allow(unreachable_patterns)]
+  pub fn merge(&mut self, op: &Op) -> CoralResult<()> {
+    match &op.cmd {
+      Cmd::IncCounter { delta } => {
+        self.value += delta;
+        Ok(())
+      }
+      _ => unreachable!("unsupported cmd for Counter"),
     }
   }
 

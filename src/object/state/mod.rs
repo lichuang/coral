@@ -16,6 +16,12 @@ impl ObjectState {
     }
   }
 
+  pub fn merge(&mut self, op: &Op) -> CoralResult<()> {
+    match self {
+      Self::Counter(s) => s.merge(op),
+    }
+  }
+
   pub fn as_counter(&self) -> Option<&CounterState> {
     match self {
       Self::Counter(s) => Some(s),

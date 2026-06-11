@@ -413,4 +413,213 @@ mod tests {
       other => panic!("expected InvalidImport, got {:?}", other),
     }
   }
+
+  /// Helper: full export of a document (empty start → current vv).
+  fn full_export(doc: &Document) -> String {
+    let start = VersionVector::new();
+    let end = doc.causal_graph().vv().clone();
+    crate::encoding::export_json(doc, &start, &end).unwrap()
+  }
+
+  /// Helper: incremental export from `from_vv` to `doc`'s current vv.
+  fn incremental_export(doc: &Document, from_vv: &VersionVector) -> String {
+    let end = doc.causal_graph().vv().clone();
+    crate::encoding::export_json(doc, from_vv, &end).unwrap()
+  }
+
+  fn counter_value(doc: &mut Document, name: &str) -> f64 {
+    doc.get_counter(name).unwrap().value()
+  }
+
+  #[test]
+  fn test_concurrent_two_peers_sync() {
+    let mut a = Document::new();
+    let mut b = Document::new();
+
+    // A: +10, -3 → 7
+    a.get_counter("hits").unwrap().increment(10.0).unwrap();
+    a.get_counter("hits").unwrap().increment(-3.0).unwrap();
+    a.commit();
+
+    // B: +5, -2 → 3
+    b.get_counter("hits").unwrap().increment(5.0).unwrap();
+    b.get_counter("hits").unwrap().increment(-2.0).unwrap();
+    b.commit();
+
+    // A → B
+    let json_a = full_export(&a);
+    b.import_json(&json_a).unwrap();
+    assert_eq!(counter_value(&mut b, "hits"), 10.0);
+
+    // B → A (incremental)
+    let vv_a = a.causal_graph().vv().clone();
+    let json_b = incremental_export(&b, &vv_a);
+    a.import_json(&json_b).unwrap();
+    assert_eq!(counter_value(&mut a, "hits"), 10.0);
+  }
+
+  #[test]
+  fn test_concurrent_three_peers_star_sync() {
+    let mut a = Document::new();
+    let mut b = Document::new();
+    let mut c = Document::new();
+
+    // A: +5 → 5
+    a.get_counter("votes").unwrap().increment(5.0).unwrap();
+    a.commit();
+
+    // B: +3, -1 → 2
+    b.get_counter("votes").unwrap().increment(3.0).unwrap();
+    b.get_counter("votes").unwrap().increment(-1.0).unwrap();
+    b.commit();
+
+    // C: -2, +4 → 2
+    c.get_counter("votes").unwrap().increment(-2.0).unwrap();
+    c.get_counter("votes").unwrap().increment(4.0).unwrap();
+    c.commit();
+
+    // All sync to A (hub)
+    a.import_json(&full_export(&b)).unwrap();
+    a.import_json(&full_export(&c)).unwrap();
+    assert_eq!(counter_value(&mut a, "votes"), 9.0);
+
+    // A distributes back to B and C
+    let vv_b = b.causal_graph().vv().clone();
+    let vv_c = c.causal_graph().vv().clone();
+    b.import_json(&incremental_export(&a, &vv_b)).unwrap();
+    c.import_json(&incremental_export(&a, &vv_c)).unwrap();
+    assert_eq!(counter_value(&mut b, "votes"), 9.0);
+    assert_eq!(counter_value(&mut c, "votes"), 9.0);
+  }
+
+  #[test]
+  fn test_concurrent_multiple_commits_same_peer() {
+    let mut a = Document::new();
+    let mut b = Document::new();
+
+    // A: 3 commits with mixed +/- → 4
+    a.get_counter("score").unwrap().increment(10.0).unwrap();
+    a.commit();
+    a.get_counter("score").unwrap().increment(-3.0).unwrap();
+    a.commit();
+    a.get_counter("score").unwrap().increment(-3.0).unwrap();
+    a.commit();
+    assert_eq!(counter_value(&mut a, "score"), 4.0);
+
+    // B: +10, -2 → 8
+    b.get_counter("score").unwrap().increment(10.0).unwrap();
+    b.get_counter("score").unwrap().increment(-2.0).unwrap();
+    b.commit();
+
+    let json_a = full_export(&a);
+    let json_b = full_export(&b);
+    a.import_json(&json_b).unwrap();
+    b.import_json(&json_a).unwrap();
+
+    assert_eq!(counter_value(&mut a, "score"), 12.0);
+    assert_eq!(counter_value(&mut b, "score"), 12.0);
+  }
+
+  #[test]
+  fn test_concurrent_chain_sync() {
+    // A → B → C (chain propagation)
+    let mut a = Document::new();
+    let mut b = Document::new();
+    let mut c = Document::new();
+
+    // A: +7, -2 → 5
+    a.get_counter("views").unwrap().increment(7.0).unwrap();
+    a.get_counter("views").unwrap().increment(-2.0).unwrap();
+    a.commit();
+
+    // B: +3 → 3
+    b.get_counter("views").unwrap().increment(3.0).unwrap();
+    b.commit();
+
+    // C: +5, -1 → 4
+    c.get_counter("views").unwrap().increment(5.0).unwrap();
+    c.get_counter("views").unwrap().increment(-1.0).unwrap();
+    c.commit();
+
+    // A → B
+    b.import_json(&full_export(&a)).unwrap();
+    assert_eq!(counter_value(&mut b, "views"), 8.0);
+
+    // B → C (carries A + B)
+    let vv_c = c.causal_graph().vv().clone();
+    c.import_json(&incremental_export(&b, &vv_c)).unwrap();
+    assert_eq!(counter_value(&mut c, "views"), 12.0);
+
+    // C → A (carries everything)
+    let vv_a = a.causal_graph().vv().clone();
+    a.import_json(&incremental_export(&c, &vv_a)).unwrap();
+    assert_eq!(counter_value(&mut a, "views"), 12.0);
+  }
+
+  #[test]
+  fn test_concurrent_incremental_round_trip() {
+    let mut a = Document::new();
+    let mut b = Document::new();
+
+    // Round 1: A edits, syncs to B
+    a.get_counter("ticks").unwrap().increment(5.0).unwrap();
+    a.commit();
+    b.import_json(&full_export(&a)).unwrap();
+    assert_eq!(counter_value(&mut b, "ticks"), 5.0);
+
+    // Round 2: Both edit concurrently
+    a.get_counter("ticks").unwrap().increment(-1.0).unwrap();
+    a.commit();
+    b.get_counter("ticks").unwrap().increment(-2.0).unwrap();
+    b.commit();
+
+    let vv_a = a.causal_graph().vv().clone();
+    let vv_b = b.causal_graph().vv().clone();
+    a.import_json(&incremental_export(&b, &vv_a)).unwrap();
+    b.import_json(&incremental_export(&a, &vv_b)).unwrap();
+    assert_eq!(counter_value(&mut a, "ticks"), 2.0);
+    assert_eq!(counter_value(&mut b, "ticks"), 2.0);
+
+    // Round 3: Both edit again
+    a.get_counter("ticks").unwrap().increment(3.0).unwrap();
+    a.commit();
+    b.get_counter("ticks").unwrap().increment(-1.0).unwrap();
+    b.commit();
+
+    let vv_a = a.causal_graph().vv().clone();
+    let vv_b = b.causal_graph().vv().clone();
+    a.import_json(&incremental_export(&b, &vv_a)).unwrap();
+    b.import_json(&incremental_export(&a, &vv_b)).unwrap();
+    assert_eq!(counter_value(&mut a, "ticks"), 4.0);
+    assert_eq!(counter_value(&mut b, "ticks"), 4.0);
+  }
+
+  #[test]
+  fn test_concurrent_two_counters_independent() {
+    let mut a = Document::new();
+    let mut b = Document::new();
+
+    a.get_counter("x").unwrap().increment(10.0).unwrap();
+    a.get_counter("x").unwrap().increment(-2.0).unwrap();
+    a.get_counter("y").unwrap().increment(20.0).unwrap();
+    a.commit();
+
+    b.get_counter("x").unwrap().increment(-1.0).unwrap();
+    b.get_counter("y").unwrap().increment(2.0).unwrap();
+    b.get_counter("y").unwrap().increment(-3.0).unwrap();
+    b.commit();
+
+    // A → B
+    b.import_json(&full_export(&a)).unwrap();
+    // B → A (incremental: only B's own ops)
+    let vv_a = a.causal_graph().vv().clone();
+    a.import_json(&incremental_export(&b, &vv_a)).unwrap();
+
+    // x: (10-2) + (-1) = 7
+    assert_eq!(counter_value(&mut a, "x"), 7.0);
+    assert_eq!(counter_value(&mut b, "x"), 7.0);
+    // y: 20 + (2-3) = 19
+    assert_eq!(counter_value(&mut a, "y"), 19.0);
+    assert_eq!(counter_value(&mut b, "y"), 19.0);
+  }
 }

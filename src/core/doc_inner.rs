@@ -187,18 +187,7 @@ impl DocInner {
   }
 
   fn save_local_commit(&mut self, commit: Commit) -> CoralResult<()> {
-    self.save_commit_inner(commit)?;
-    self.try_apply_pending()?;
-    Ok(())
-  }
-
-  fn save_remote_commit(&mut self, commit: Commit) -> CoralResult<()> {
-    for op in commit.ops.iter() {
-      self.state_mut(op.container).apply(op)?;
-    }
-    self.save_commit_inner(commit)?;
-    self.try_apply_pending()?;
-    Ok(())
+    self.save_commit_inner(commit)
   }
 
   fn try_apply_pending(&mut self) -> CoralResult<()> {
@@ -209,9 +198,6 @@ impl DocInner {
 
       for commit in pending {
         if Self::deps_satisfied(&self.causal_graph, &commit) {
-          for op in commit.ops.iter() {
-            self.state_mut(op.container).apply(op)?;
-          }
           self.save_commit_inner(commit)?;
           applied_any = true;
         } else {
@@ -223,6 +209,19 @@ impl DocInner {
       if !applied_any {
         break;
       }
+    }
+    Ok(())
+  }
+
+  fn merge_diff(&mut self, diff: &crate::version::VersionVectorDiff) -> CoralResult<()> {
+    let mut ops: Vec<Op> = Vec::new();
+    self.commit_store.iter_diff(diff, |commit| {
+      for op in commit.ops.iter() {
+        ops.push(op.clone());
+      }
+    });
+    for op in &ops {
+      self.state_mut(op.container).merge(op)?;
     }
     Ok(())
   }
@@ -275,13 +274,12 @@ impl DocInner {
     #[cfg(debug_assertions)]
     commit.assert_contiguous();
 
-    // Duplicate guard: already imported?
     if self.is_commit_known(&commit) {
       return Ok(());
     }
 
     if Self::deps_satisfied(&self.causal_graph, &commit) {
-      self.save_remote_commit(commit)?;
+      self.save_commit_inner(commit)?;
     } else {
       self.pending_commits.push(commit);
     }
@@ -303,15 +301,16 @@ impl DocInner {
     Ok(())
   }
 
-  /// Imports a batch of commits.  Each commit is validated and either applied
-  /// immediately or queued as pending.  After the batch is processed we run a
-  /// final cascade to apply any commits whose deps were satisfied by later
-  /// entries in the same batch.
   fn import_commits(&mut self, commits: Vec<Commit>) -> CoralResult<()> {
+    let vv_before = self.causal_graph.vv().clone();
+
     for commit in commits {
       self.import_commit(commit)?;
     }
     self.try_apply_pending()?;
+
+    let diff = self.causal_graph.vv().diff_from(&vv_before);
+    self.merge_diff(&diff)?;
     Ok(())
   }
 }
