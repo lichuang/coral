@@ -186,10 +186,17 @@ impl DocInner {
     Ok(())
   }
 
+  /// Save a **local** commit.
+  ///
+  /// State was already updated in [`push_local_op`], so we only record
+  /// the commit into the causal graph and commit store.
   fn save_local_commit(&mut self, commit: Commit) -> CoralResult<()> {
     self.save_commit_inner(commit)
   }
 
+  /// Drain the pending queue, saving any commits whose deps are now
+  /// satisfied by the causal graph.  Repeats up to 3 passes to handle
+  /// chains (A depends on B depends on C — resolving C enables B, then A).
   fn try_apply_pending(&mut self) -> CoralResult<()> {
     for _ in 0..3 {
       let mut applied_any = false;
@@ -213,6 +220,16 @@ impl DocInner {
     Ok(())
   }
 
+  /// Compute the version-vector diff and merge all new ops into state.
+  ///
+  /// Two-phase approach:
+  ///   1. Collect all ops from commits in the diff range (via
+  ///      [`CommitStore::iter_diff`]) into a flat Vec to release the
+  ///      borrow on `commit_store`.
+  ///   2. Iterate the collected ops and call [`ObjectState::merge`].
+  ///
+  /// This separation exists because `iter_diff` borrows `commit_store`
+  /// while `state_mut` borrows `self.states` — both through `&mut self`.
   fn merge_diff(&mut self, diff: &crate::version::VersionVectorDiff) -> CoralResult<()> {
     let mut ops: Vec<Op> = Vec::new();
     self.commit_store.iter_diff(diff, |commit| {
@@ -264,6 +281,11 @@ impl DocInner {
     Ok(self.registry.alloc_root(name.to_string(), id))
   }
 
+  /// Validate and enqueue a single remote commit.
+  ///
+  /// Rejects commits from the local peer, empty commits, and duplicates.
+  /// If all deps are satisfied, saves immediately via [`save_commit_inner`];
+  /// otherwise queues in `pending_commits` for later resolution.
   fn import_commit(&mut self, commit: Commit) -> CoralResult<()> {
     if commit.id.peer == self.peer_id {
       return Err(CoralError::InvalidImport("local commit".into()));
@@ -301,6 +323,16 @@ impl DocInner {
     Ok(())
   }
 
+  /// Import a batch of commits with version-diff based merge.
+  ///
+  /// Three-phase pipeline:
+  ///   1. **Save** — record `vv_before`, then import each commit into the
+  ///      causal graph and commit store (no state mutation).  Pending
+  ///      commits are resolved via [`try_apply_pending`].
+  ///   2. **Diff** — compute `vv_after.diff_from(vv_before)` to identify
+  ///      exactly which IdSpans are new.
+  ///   3. **Merge** — retrieve the new ops from [`CommitStore`] and call
+  ///      [`ObjectState::merge`] on each container.
   fn import_commits(&mut self, commits: Vec<Commit>) -> CoralResult<()> {
     let vv_before = self.causal_graph.vv().clone();
 
